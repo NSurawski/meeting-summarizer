@@ -66,7 +66,32 @@ export default function MeetingSummarizer() {
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
   const [apiKey, setApiKey] = useState("");
+  const [savedMeetings, setSavedMeetings] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("meetingSummaries") || "[]"); }
+    catch { return []; }
+  });
+  const [trackerOpen, setTrackerOpen] = useState(true);
   const textareaRef = useRef(null);
+
+  const unresolvedItems = savedMeetings.flatMap(m => [
+    ...m.actionItems.filter(a => !a.resolved).map((a, i) => ({ ...a, type: "action", index: i, origIndex: m.actionItems.indexOf(a), meetingId: m.id, meetingTitle: m.title })),
+    ...m.openQuestions.filter(q => !q.resolved).map((q, i) => ({ ...q, type: "question", index: i, origIndex: m.openQuestions.indexOf(q), meetingId: m.id, meetingTitle: m.title }))
+  ]);
+
+  const toggleResolved = (meetingId, type, index) => {
+    const updated = savedMeetings.map(m => {
+      if (m.id !== meetingId) return m;
+      const key = type === "action" ? "actionItems" : "openQuestions";
+      return { ...m, [key]: m[key].map((item, i) => i === index ? { ...item, resolved: !item.resolved } : item) };
+    });
+    setSavedMeetings(updated);
+    localStorage.setItem("meetingSummaries", JSON.stringify(updated));
+  };
+
+  const clearHistory = () => {
+    setSavedMeetings([]);
+    localStorage.removeItem("meetingSummaries");
+  };
 
   const loadSample = () => {
     setTranscript(SAMPLE_TRANSCRIPT);
@@ -111,6 +136,17 @@ export default function MeetingSummarizer() {
       const clean = text.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(clean);
       setSummary(parsed);
+
+      const newMeeting = {
+        id: "ms_" + Date.now(),
+        savedAt: new Date().toISOString(),
+        title: parsed.title,
+        actionItems: (parsed.actionItems || []).map(a => ({ ...a, resolved: false })),
+        openQuestions: (parsed.openQuestions || []).map(q => ({ ...q, resolved: false }))
+      };
+      const updatedMeetings = [...savedMeetings, newMeeting];
+      setSavedMeetings(updatedMeetings);
+      localStorage.setItem("meetingSummaries", JSON.stringify(updatedMeetings));
     } catch (err) {
       setError(err.message || "Something went wrong generating the summary. Please try again.");
     } finally {
@@ -216,6 +252,78 @@ export default function MeetingSummarizer() {
             }} />
           )}
         </div>
+
+        {/* Follow-up Tracker */}
+        {unresolvedItems.length > 0 && (
+          <div style={{
+            background: "rgba(251,191,36,0.06)",
+            border: "1px solid rgba(251,191,36,0.2)",
+            borderRadius: 14,
+            marginBottom: 16,
+            overflow: "hidden"
+          }}>
+            <button
+              onClick={() => setTrackerOpen(!trackerOpen)}
+              style={{
+                width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "14px 24px",
+                background: "transparent", border: "none", cursor: "pointer", color: "#FBBF24"
+              }}
+            >
+              <span style={{ fontSize: 11, letterSpacing: 3, fontFamily: "'Courier New', monospace", textTransform: "uppercase" }}>
+                FOLLOW-UP TRACKER ({unresolvedItems.length} open)
+              </span>
+              <span style={{ fontSize: 14 }}>{trackerOpen ? "▾" : "▸"}</span>
+            </button>
+
+            {trackerOpen && (
+              <div style={{ padding: "0 24px 20px" }}>
+                {Object.entries(
+                  unresolvedItems.reduce((groups, item) => {
+                    (groups[item.meetingTitle] = groups[item.meetingTitle] || []).push(item);
+                    return groups;
+                  }, {})
+                ).map(([title, items]) => (
+                  <div key={title} style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, color: "#7A8499", fontFamily: "'Courier New', monospace", marginBottom: 8 }}>
+                      {title}
+                    </div>
+                    {items.map((item, i) => (
+                      <div
+                        key={i}
+                        onClick={() => toggleResolved(item.meetingId, item.type, item.origIndex)}
+                        style={{
+                          display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 6,
+                          padding: "8px 12px", borderRadius: 8,
+                          background: "rgba(255,255,255,0.03)",
+                          cursor: "pointer",
+                          borderLeft: `3px solid ${item.type === "action" ? "#4ADE80" : "#FBBF24"}`,
+                          transition: "background 0.15s"
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
+                        onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.03)"}
+                      >
+                        <span style={{ color: item.type === "action" ? "#4ADE80" : "#FBBF24", fontSize: 14, marginTop: 1, flexShrink: 0 }}>
+                          ○
+                        </span>
+                        <div>
+                          <div style={{ fontSize: 14, color: "#C8D4E8", lineHeight: 1.5 }}>
+                            {item.type === "action" ? item.task : item.question}
+                          </div>
+                          {item.type === "action" && item.owner && (
+                            <span style={{ fontSize: 11, color: "#7A8499", fontFamily: "'Courier New', monospace" }}>
+                              {item.owner}{item.due ? ` · ${item.due}` : ""}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {!summary ? (
           /* Input Panel */
@@ -378,6 +486,10 @@ Works with:
               </button>
             </div>
 
+            <div style={{ fontSize: 12, color: "#4ADE80", fontFamily: "'Courier New', monospace", marginBottom: 16 }}>
+              ✓ {summary.actionItems?.length || 0} action items + {summary.openQuestions?.length || 0} open questions saved to tracker
+            </div>
+
             {/* Title + TL;DR */}
             <div style={{
               background: "linear-gradient(135deg, rgba(37,99,235,0.15), rgba(30,64,175,0.1))",
@@ -508,9 +620,26 @@ Works with:
           <span style={{ fontSize: 12, color: "#3A4560", fontFamily: "'Courier New', monospace" }}>
             Meeting Summarizer v1.0
           </span>
-          <span style={{ fontSize: 12, color: "#3A4560", fontFamily: "'Courier New', monospace" }}>
-            Powered by Claude
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            {savedMeetings.length > 0 && (
+              <button
+                onClick={clearHistory}
+                style={{
+                  background: "none", border: "none",
+                  color: "#3A4560", fontSize: 12, cursor: "pointer",
+                  fontFamily: "'Courier New', monospace",
+                  transition: "color 0.15s"
+                }}
+                onMouseEnter={e => e.target.style.color = "#FCA5A5"}
+                onMouseLeave={e => e.target.style.color = "#3A4560"}
+              >
+                Clear history
+              </button>
+            )}
+            <span style={{ fontSize: 12, color: "#3A4560", fontFamily: "'Courier New', monospace" }}>
+              Powered by Claude
+            </span>
+          </div>
         </div>
       </div>
     </div>

@@ -65,7 +65,7 @@ export default function MeetingSummarizer() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
-  const [apiKey, setApiKey] = useState("");
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem("anthropicApiKey") || "");
   const [savedMeetings, setSavedMeetings] = useState(() => {
     try { return JSON.parse(localStorage.getItem("meetingSummaries") || "[]"); }
     catch { return []; }
@@ -128,13 +128,28 @@ export default function MeetingSummarizer() {
 
       if (!response.ok) {
         const errData = await response.json().catch(() => null);
-        throw new Error(errData?.error?.message || `API error: ${response.status}`);
+        const status = response.status;
+        if (status === 401) throw new Error("Invalid API key. Please check your key and try again.");
+        if (status === 429) throw new Error("Rate limit exceeded. Please wait a moment and try again.");
+        if (status === 529) throw new Error("Anthropic API is temporarily overloaded. Please try again in a few seconds.");
+        throw new Error(errData?.error?.message || `API error: ${status}`);
       }
 
       const data = await response.json();
       const text = data.content?.map(b => b.text || "").join("") || "";
       const clean = text.replace(/```json|```/g, "").trim();
-      const parsed = JSON.parse(clean);
+
+      let parsed;
+      try {
+        parsed = JSON.parse(clean);
+      } catch {
+        throw new Error("Failed to parse the summary. The AI returned an unexpected format. Please try again.");
+      }
+
+      if (!parsed.title || !parsed.tldr) {
+        throw new Error("The summary is missing required fields. Please try again with a clearer transcript.");
+      }
+
       setSummary(parsed);
 
       const newMeeting = {
@@ -148,7 +163,11 @@ export default function MeetingSummarizer() {
       setSavedMeetings(updatedMeetings);
       localStorage.setItem("meetingSummaries", JSON.stringify(updatedMeetings));
     } catch (err) {
-      setError(err.message || "Something went wrong generating the summary. Please try again.");
+      if (err.name === "TypeError" && err.message === "Failed to fetch") {
+        setError("Network error — could not reach the Anthropic API. Check your internet connection.");
+      } else {
+        setError(err.message || "Something went wrong generating the summary. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -233,7 +252,7 @@ export default function MeetingSummarizer() {
           <input
             type="password"
             value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
+            onChange={e => { setApiKey(e.target.value); localStorage.setItem("anthropicApiKey", e.target.value); }}
             placeholder="sk-ant-..."
             style={{
               flex: 1,
@@ -254,6 +273,35 @@ export default function MeetingSummarizer() {
         </div>
 
         {/* Follow-up Tracker */}
+        {savedMeetings.length === 0 ? (
+          <div style={{
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 14,
+            padding: "16px 24px",
+            marginBottom: 16,
+            display: "flex", alignItems: "center", gap: 10
+          }}>
+            <span style={{ color: "#7A8499", fontSize: 14 }}>○</span>
+            <span style={{ fontSize: 13, color: "#7A8499", fontFamily: "'Courier New', monospace" }}>
+              No meetings summarized yet. Your follow-up items will appear here.
+            </span>
+          </div>
+        ) : unresolvedItems.length === 0 ? (
+          <div style={{
+            background: "rgba(74,222,128,0.06)",
+            border: "1px solid rgba(74,222,128,0.2)",
+            borderRadius: 14,
+            padding: "16px 24px",
+            marginBottom: 16,
+            display: "flex", alignItems: "center", gap: 10
+          }}>
+            <span style={{ color: "#4ADE80", fontSize: 14 }}>✓</span>
+            <span style={{ fontSize: 13, color: "#4ADE80", fontFamily: "'Courier New', monospace" }}>
+              All items resolved — {savedMeetings.length} meeting{savedMeetings.length > 1 ? "s" : ""} tracked
+            </span>
+          </div>
+        ) : null}
         {unresolvedItems.length > 0 && (
           <div style={{
             background: "rgba(251,191,36,0.06)",

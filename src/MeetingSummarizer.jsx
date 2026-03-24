@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { demoSummary } from "./demoSummary";
 
 const SYSTEM_PROMPT = `You are an expert meeting summarizer for B2B SaaS teams. Analyze the meeting transcript and return ONLY valid JSON with this exact structure:
 
@@ -96,6 +97,11 @@ export default function MeetingSummarizer() {
   const loadSample = () => {
     setTranscript(SAMPLE_TRANSCRIPT);
     setSummary(null);
+    setError(null);
+  };
+
+  const viewDemo = () => {
+    setSummary(demoSummary);
     setError(null);
   };
 
@@ -271,6 +277,44 @@ export default function MeetingSummarizer() {
             }} />
           )}
         </div>
+
+        {/* Demo CTA */}
+        {!summary && (
+          <div style={{
+            background: "linear-gradient(135deg, rgba(37,99,235,0.12), rgba(30,64,175,0.08))",
+            border: "1px solid rgba(59,130,246,0.25)",
+            borderRadius: 14,
+            padding: "18px 24px",
+            marginBottom: 16,
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16
+          }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: "#FFFFFF", marginBottom: 4 }}>
+                See it in action
+              </div>
+              <div style={{ fontSize: 13, color: "#7A8499", lineHeight: 1.5 }}>
+                View a sample meeting summary — no API key needed.
+              </div>
+            </div>
+            <button
+              onClick={viewDemo}
+              style={{
+                background: "linear-gradient(135deg, #1E40AF, #2563EB)",
+                border: "1px solid #3B82F6",
+                borderRadius: 10, padding: "10px 20px",
+                color: "#FFFFFF", fontSize: 14, fontWeight: 600,
+                cursor: "pointer",
+                fontFamily: "'Georgia', serif",
+                whiteSpace: "nowrap",
+                transition: "transform 0.15s"
+              }}
+              onMouseEnter={e => e.target.style.transform = "translateY(-1px)"}
+              onMouseLeave={e => e.target.style.transform = "translateY(0)"}
+            >
+              View Demo →
+            </button>
+          </div>
+        )}
 
         {/* Follow-up Tracker */}
         {savedMeetings.length === 0 ? (

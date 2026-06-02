@@ -113,6 +113,16 @@ export default function MeetingSummarizer() {
     localStorage.removeItem("meetingSummaries");
   };
 
+  const resolveAll = () => {
+    const updated = savedMeetings.map(m => ({
+      ...m,
+      actionItems: m.actionItems.map(a => ({ ...a, resolved: true })),
+      openQuestions: m.openQuestions.map(q => ({ ...q, resolved: true }))
+    }));
+    setSavedMeetings(updated);
+    localStorage.setItem("meetingSummaries", JSON.stringify(updated));
+  };
+
   const loadSample = () => {
     setTranscript(SAMPLE_TRANSCRIPT);
     setSummary(null);
@@ -373,19 +383,31 @@ export default function MeetingSummarizer() {
             marginBottom: 16,
             overflow: "hidden"
           }}>
-            <button
-              onClick={() => setTrackerOpen(!trackerOpen)}
-              style={{
-                width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "14px 24px",
-                background: "transparent", border: "none", cursor: "pointer", color: "#FBBF24"
-              }}
-            >
-              <span style={{ fontSize: 11, letterSpacing: 3, fontFamily: "'Courier New', monospace", textTransform: "uppercase" }}>
-                FOLLOW-UP TRACKER ({unresolvedItems.length} open)
-              </span>
-              <span style={{ fontSize: 14 }}>{trackerOpen ? "▾" : "▸"}</span>
-            </button>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 24px" }}>
+              <button
+                onClick={() => setTrackerOpen(!trackerOpen)}
+                style={{ background: "transparent", border: "none", cursor: "pointer", color: "#FBBF24", padding: 0, display: "flex", alignItems: "center", gap: 8 }}
+              >
+                <span style={{ fontSize: 11, letterSpacing: 3, fontFamily: "'Courier New', monospace", textTransform: "uppercase" }}>
+                  FOLLOW-UP TRACKER ({unresolvedItems.length} open)
+                </span>
+                <span style={{ fontSize: 14 }}>{trackerOpen ? "▾" : "▸"}</span>
+              </button>
+              <button
+                onClick={resolveAll}
+                style={{
+                  background: "none", border: "1px solid rgba(251,191,36,0.3)",
+                  borderRadius: 6, padding: "4px 12px",
+                  color: "#FBBF24", fontSize: 11, cursor: "pointer",
+                  fontFamily: "'Courier New', monospace", letterSpacing: 0.5,
+                  transition: "all 0.15s"
+                }}
+                onMouseEnter={e => { e.target.style.background = "rgba(251,191,36,0.1)"; e.target.style.borderColor = "rgba(251,191,36,0.6)"; }}
+                onMouseLeave={e => { e.target.style.background = "none"; e.target.style.borderColor = "rgba(251,191,36,0.3)"; }}
+              >
+                Mark all resolved ✓
+              </button>
+            </div>
 
             {trackerOpen && (
               <div style={{ padding: "0 24px 20px" }}>

@@ -248,8 +248,8 @@ export default function MeetingSummarizer() {
       <div style={{ position: "relative", zIndex: 1, maxWidth: 860, margin: "0 auto", padding: "48px 24px" }}>
 
         {/* Header */}
-        <div style={{ marginBottom: 48 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+        <div style={{ marginBottom: 48, textAlign: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 12 }}>
             <div style={{
               width: 8, height: 8, borderRadius: "50%",
               background: "#4ADE80",

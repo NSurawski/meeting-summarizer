@@ -155,7 +155,7 @@ export default function MeetingSummarizer() {
         },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
+          max_tokens: 4000,
           system: SYSTEM_PROMPT,
           messages: [{ role: "user", content: `Summarize this meeting transcript:\n\n${transcript}` }]
         })

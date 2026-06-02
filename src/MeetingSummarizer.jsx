@@ -72,7 +72,26 @@ export default function MeetingSummarizer() {
     catch { return []; }
   });
   const [trackerOpen, setTrackerOpen] = useState(true);
+  const [dragOver, setDragOver] = useState(false);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  const handleFile = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      let text = e.target.result;
+      if (file.name.endsWith(".vtt")) {
+        text = text.split("\n")
+          .filter(line => !/^WEBVTT|^\d{2}:\d{2}|^NOTE/.test(line) && line.trim() !== "")
+          .join("\n").trim();
+      }
+      setTranscript(text);
+      setSummary(null);
+      setError(null);
+    };
+    reader.readAsText(file);
+  };
 
   const unresolvedItems = savedMeetings.flatMap(m => [
     ...m.actionItems.filter(a => !a.resolved).map((a, i) => ({ ...a, type: "action", index: i, origIndex: m.actionItems.indexOf(a), meetingId: m.id, meetingTitle: m.title })),
@@ -420,13 +439,20 @@ export default function MeetingSummarizer() {
         {!summary ? (
           /* Input Panel */
           <div>
-            <div style={{
-              background: "rgba(255,255,255,0.03)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              borderRadius: 16,
-              overflow: "hidden",
-              marginBottom: 16
-            }}>
+            <div
+              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+              onDragEnter={e => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false); }}
+              onDrop={e => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]); }}
+              style={{
+                background: dragOver ? "rgba(59,130,246,0.06)" : "rgba(255,255,255,0.03)",
+                border: `1px solid ${dragOver ? "rgba(59,130,246,0.5)" : "rgba(255,255,255,0.08)"}`,
+                borderRadius: 16,
+                overflow: "hidden",
+                marginBottom: 16,
+                transition: "background 0.15s, border-color 0.15s"
+              }}
+            >
               {/* Textarea toolbar */}
               <div style={{
                 display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -437,20 +463,43 @@ export default function MeetingSummarizer() {
                 <span style={{ fontSize: 12, color: "#7A8499", fontFamily: "'Courier New', monospace", letterSpacing: 1 }}>
                   TRANSCRIPT INPUT
                 </span>
-                <button
-                  onClick={loadSample}
-                  style={{
-                    background: "none", border: "1px solid rgba(255,255,255,0.12)",
-                    borderRadius: 6, padding: "4px 12px",
-                    color: "#9BAACC", fontSize: 12, cursor: "pointer",
-                    fontFamily: "'Courier New', monospace",
-                    transition: "all 0.15s"
-                  }}
-                  onMouseEnter={e => { e.target.style.borderColor = "rgba(255,255,255,0.3)"; e.target.style.color = "#E8EDF5"; }}
-                  onMouseLeave={e => { e.target.style.borderColor = "rgba(255,255,255,0.12)"; e.target.style.color = "#9BAACC"; }}
-                >
-                  Load sample →
-                </button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                      background: "none", border: "1px solid rgba(255,255,255,0.12)",
+                      borderRadius: 6, padding: "4px 12px",
+                      color: "#9BAACC", fontSize: 12, cursor: "pointer",
+                      fontFamily: "'Courier New', monospace",
+                      transition: "all 0.15s"
+                    }}
+                    onMouseEnter={e => { e.target.style.borderColor = "rgba(255,255,255,0.3)"; e.target.style.color = "#E8EDF5"; }}
+                    onMouseLeave={e => { e.target.style.borderColor = "rgba(255,255,255,0.12)"; e.target.style.color = "#9BAACC"; }}
+                  >
+                    Upload file ↑
+                  </button>
+                  <button
+                    onClick={loadSample}
+                    style={{
+                      background: "none", border: "1px solid rgba(255,255,255,0.12)",
+                      borderRadius: 6, padding: "4px 12px",
+                      color: "#9BAACC", fontSize: 12, cursor: "pointer",
+                      fontFamily: "'Courier New', monospace",
+                      transition: "all 0.15s"
+                    }}
+                    onMouseEnter={e => { e.target.style.borderColor = "rgba(255,255,255,0.3)"; e.target.style.color = "#E8EDF5"; }}
+                    onMouseLeave={e => { e.target.style.borderColor = "rgba(255,255,255,0.12)"; e.target.style.color = "#9BAACC"; }}
+                  >
+                    Load sample →
+                  </button>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".txt,.vtt"
+                  style={{ display: "none" }}
+                  onChange={e => { handleFile(e.target.files[0]); e.target.value = ""; }}
+                />
               </div>
 
               <textarea
@@ -458,7 +507,7 @@ export default function MeetingSummarizer() {
                 value={transcript}
                 onChange={e => setTranscript(e.target.value)}
                 onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); summarize(); } }}
-                placeholder="Paste your meeting transcript here...
+                placeholder="Paste your meeting transcript here, or drag and drop a .txt or .vtt file...
 
 Works with:
 • Zoom / Google Meet / Teams transcripts

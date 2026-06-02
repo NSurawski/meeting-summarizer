@@ -457,12 +457,15 @@ export default function MeetingSummarizer() {
                 ref={textareaRef}
                 value={transcript}
                 onChange={e => setTranscript(e.target.value)}
+                onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); summarize(); } }}
                 placeholder="Paste your meeting transcript here...
 
 Works with:
 • Zoom / Google Meet / Teams transcripts
 • Manual notes or copied text
-• Any format — the AI handles the rest"
+• Any format — the AI handles the rest
+
+Press ⌘↵ to summarize"
                 style={{
                   width: "100%", minHeight: 320,
                   background: "transparent",

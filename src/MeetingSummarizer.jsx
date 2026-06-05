@@ -103,6 +103,7 @@ export default function MeetingSummarizer() {
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
   const [apiKey, setApiKey] = useState(() => localStorage.getItem("anthropicApiKey") || "");
+  const [model, setModel] = useState(() => localStorage.getItem("meetingModel") || "claude-sonnet-4-6");
   const [savedMeetings, setSavedMeetings] = useState(() => {
     try { return JSON.parse(localStorage.getItem("meetingSummaries") || "[]"); }
     catch { return []; }
@@ -193,7 +194,7 @@ export default function MeetingSummarizer() {
           "anthropic-dangerous-direct-browser-access": "true"
         },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: model,
           max_tokens: 4000,
           stream: true,
           system: SYSTEM_PROMPT,
@@ -412,6 +413,44 @@ export default function MeetingSummarizer() {
               boxShadow: "0 0 8px #4ADE80"
             }} />
           )}
+        </div>
+
+        {/* Model Selector */}
+        <div style={{
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 12,
+          padding: "10px 20px",
+          marginBottom: 16,
+          display: "flex", alignItems: "center", gap: 12
+        }}>
+          <span style={{ fontSize: 12, color: "#7A8499", fontFamily: "'Courier New', monospace", letterSpacing: 1, whiteSpace: "nowrap" }}>
+            MODEL
+          </span>
+          <div style={{ display: "flex", gap: 6, flex: 1 }}>
+            {[
+              { id: "claude-haiku-4-5-20251001", label: "Haiku", desc: "Fast · Cheap" },
+              { id: "claude-sonnet-4-6",          label: "Sonnet", desc: "Quality · Slower" }
+            ].map(opt => (
+              <button
+                key={opt.id}
+                onClick={() => { setModel(opt.id); localStorage.setItem("meetingModel", opt.id); }}
+                style={{
+                  flex: 1, padding: "6px 12px",
+                  background: model === opt.id ? "rgba(59,130,246,0.15)" : "transparent",
+                  border: `1px solid ${model === opt.id ? "rgba(59,130,246,0.45)" : "rgba(255,255,255,0.08)"}`,
+                  borderRadius: 8, cursor: "pointer",
+                  color: model === opt.id ? "#60A5FA" : "#7A8499",
+                  fontSize: 12, fontFamily: "'Courier New', monospace",
+                  transition: "all 0.15s",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8
+                }}
+              >
+                <span style={{ fontWeight: model === opt.id ? 600 : 400 }}>{opt.label}</span>
+                <span style={{ fontSize: 10, opacity: 0.65 }}>{opt.desc}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Demo CTA */}

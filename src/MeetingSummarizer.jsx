@@ -274,6 +274,27 @@ export default function MeetingSummarizer() {
     }
   };
 
+  const downloadMd = () => {
+    if (!summary) return;
+    const text = [
+      `# ${summary.title}`,
+      `\n## TL;DR\n${summary.tldr}`,
+      summary.topics?.length ? `\n## Topics Discussed\n${summary.topics.map(t => `• ${t.title}: ${t.summary}`).join("\n")}` : "",
+      summary.decisions?.length ? `\n## Decisions\n${summary.decisions.map(d => `• ${d.decision}${d.context ? ` (${d.context})` : ""}`).join("\n")}` : "",
+      summary.actionItems?.length ? `\n## Action Items\n${summary.actionItems.map(a => `• ${a.task} — Owner: ${a.owner}, Due: ${a.due}`).join("\n")}` : "",
+      summary.openQuestions?.length ? `\n## Open Questions\n${summary.openQuestions.map(q => `• ${q.question}`).join("\n")}` : ""
+    ].filter(Boolean).join("\n");
+
+    const slug = summary.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const blob = new Blob([text], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = slug + ".md";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const copyAll = () => {
     if (!summary) return;
     const text = [
@@ -809,6 +830,20 @@ Press ⌘↵ to summarize"
                   }}
                 >
                   {copied ? "✓ Copied!" : "Copy all →"}
+                </button>
+                <button
+                  onClick={downloadMd}
+                  style={{
+                    flex: 1, padding: "11px",
+                    background: "rgba(167,139,250,0.1)",
+                    border: "1px solid rgba(167,139,250,0.3)",
+                    borderRadius: 10, cursor: "pointer",
+                    color: "#A78BFA", fontSize: 13,
+                    fontFamily: "'Courier New', monospace",
+                    transition: "all 0.2s"
+                  }}
+                >
+                  Download .md ↓
                 </button>
               </div>
             )}

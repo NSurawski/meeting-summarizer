@@ -108,6 +108,8 @@ export default function MeetingSummarizer() {
     catch { return []; }
   });
   const [trackerOpen, setTrackerOpen] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [viewingHistory, setViewingHistory] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -251,6 +253,9 @@ export default function MeetingSummarizer() {
         id: "ms_" + Date.now(),
         savedAt: new Date().toISOString(),
         title: parsed.title,
+        tldr: parsed.tldr,
+        topics: parsed.topics || [],
+        decisions: parsed.decisions || [],
         actionItems: (parsed.actionItems || []).map(a => ({ ...a, resolved: false })),
         openQuestions: (parsed.openQuestions || []).map(q => ({ ...q, resolved: false }))
       };
@@ -286,10 +291,25 @@ export default function MeetingSummarizer() {
     });
   };
 
+  const viewSavedSummary = (meeting) => {
+    setSummary({
+      title: meeting.title,
+      tldr: meeting.tldr || "",
+      topics: meeting.topics || [],
+      decisions: meeting.decisions || [],
+      actionItems: (meeting.actionItems || []).map(({ task, owner, due }) => ({ task, owner, due })),
+      openQuestions: (meeting.openQuestions || []).map(({ question }) => ({ question }))
+    });
+    setViewingHistory(true);
+    setError(null);
+    setStreamingText("");
+  };
+
   const reset = () => {
     setTranscript("");
     setSummary(null);
     setError(null);
+    setViewingHistory(false);
   };
 
   const isStreaming = loading && streamingText.length > 0;
@@ -524,6 +544,69 @@ export default function MeetingSummarizer() {
           </div>
         )}
 
+        {/* Past Summaries */}
+        {savedMeetings.length > 0 && (
+          <div style={{
+            background: "rgba(255,255,255,0.02)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 14,
+            marginBottom: 16,
+            overflow: "hidden"
+          }}>
+            <button
+              onClick={() => setHistoryOpen(!historyOpen)}
+              style={{
+                width: "100%", background: "transparent", border: "none",
+                cursor: "pointer", padding: "14px 24px",
+                display: "flex", alignItems: "center", justifyContent: "space-between"
+              }}
+            >
+              <span style={{ fontSize: 11, letterSpacing: 3, color: "#7A8499", fontFamily: "'Courier New', monospace", textTransform: "uppercase" }}>
+                Past Summaries ({savedMeetings.length})
+              </span>
+              <span style={{ fontSize: 14, color: "#7A8499" }}>{historyOpen ? "▾" : "▸"}</span>
+            </button>
+
+            {historyOpen && (
+              <div style={{ padding: "0 24px 16px" }}>
+                {[...savedMeetings].reverse().map((m, i, arr) => (
+                  <div key={m.id} style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    padding: "12px 0",
+                    borderBottom: i < arr.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none"
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 14, color: "#C8D4E8", marginBottom: 4, lineHeight: 1.4 }}>
+                        {m.title}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#4A5568", fontFamily: "'Courier New', monospace" }}>
+                        {new Date(m.savedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        {" · "}{m.actionItems?.length || 0} action{m.actionItems?.length !== 1 ? "s" : ""}
+                        {" · "}{m.openQuestions?.length || 0} question{m.openQuestions?.length !== 1 ? "s" : ""}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => viewSavedSummary(m)}
+                      style={{
+                        background: "none", border: "1px solid rgba(255,255,255,0.12)",
+                        borderRadius: 6, padding: "5px 14px", marginLeft: 16,
+                        color: "#9BAACC", fontSize: 12, cursor: "pointer",
+                        fontFamily: "'Courier New', monospace",
+                        whiteSpace: "nowrap", flexShrink: 0,
+                        transition: "all 0.15s"
+                      }}
+                      onMouseEnter={e => { e.target.style.borderColor = "rgba(255,255,255,0.3)"; e.target.style.color = "#E8EDF5"; }}
+                      onMouseLeave={e => { e.target.style.borderColor = "rgba(255,255,255,0.12)"; e.target.style.color = "#9BAACC"; }}
+                    >
+                      View →
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {!showOutput ? (
           /* Input Panel */
           <div>
@@ -711,7 +794,7 @@ Press ⌘↵ to summarize"
                     fontFamily: "'Courier New', monospace"
                   }}
                 >
-                  ← New transcript
+                  {viewingHistory ? "← Back" : "← New transcript"}
                 </button>
                 <button
                   onClick={copyAll}
@@ -730,8 +813,8 @@ Press ⌘↵ to summarize"
               </div>
             )}
 
-            {/* Tracker save confirmation — only after complete */}
-            {summary && !isStreaming && (
+            {/* Tracker save confirmation — only after a fresh generation */}
+            {summary && !isStreaming && !viewingHistory && (
               <div style={{ fontSize: 12, color: "#4ADE80", fontFamily: "'Courier New', monospace", marginBottom: 16 }}>
                 ✓ {summary.actionItems?.length || 0} action items + {summary.openQuestions?.length || 0} open questions saved to tracker
               </div>

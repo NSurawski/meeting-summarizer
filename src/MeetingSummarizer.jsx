@@ -60,10 +60,46 @@ Jordan: Just a note that the new onboarding flow goes live Monday. We should wat
 
 Sarah: Good call. I'll set up a dashboard to track it. Okay I think we're good — I'll send out notes after this.`;
 
+function extractPartial(raw) {
+  const text = raw.replace(/```json|```/g, "").trim();
+  const result = {};
+
+  const extractStr = (key) => {
+    const re = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`, "s");
+    const m = text.match(re);
+    if (!m) return null;
+    try { return JSON.parse(`"${m[1]}"`); } catch { return m[1]; }
+  };
+
+  const extractArr = (key) => {
+    const keyIdx = text.indexOf(`"${key}"`);
+    if (keyIdx === -1) return null;
+    const bracketIdx = text.indexOf("[", keyIdx);
+    if (bracketIdx === -1) return null;
+    let depth = 0, end = -1;
+    for (let i = bracketIdx; i < text.length; i++) {
+      if (text[i] === "[") depth++;
+      else if (text[i] === "]") { depth--; if (depth === 0) { end = i; break; } }
+    }
+    if (end === -1) return null;
+    try { return JSON.parse(text.slice(bracketIdx, end + 1)); } catch { return null; }
+  };
+
+  result.title = extractStr("title");
+  result.tldr = extractStr("tldr");
+  result.topics = extractArr("topics");
+  result.decisions = extractArr("decisions");
+  result.actionItems = extractArr("actionItems");
+  result.openQuestions = extractArr("openQuestions");
+
+  return result;
+}
+
 export default function MeetingSummarizer() {
   const [transcript, setTranscript] = useState("");
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [streamingText, setStreamingText] = useState("");
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
   const [apiKey, setApiKey] = useState(() => localStorage.getItem("anthropicApiKey") || "");
@@ -143,6 +179,7 @@ export default function MeetingSummarizer() {
     setLoading(true);
     setError(null);
     setSummary(null);
+    setStreamingText("");
 
     try {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -156,6 +193,7 @@ export default function MeetingSummarizer() {
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
           max_tokens: 4000,
+          stream: true,
           system: SYSTEM_PROMPT,
           messages: [{ role: "user", content: `Summarize this meeting transcript:\n\n${transcript}` }]
         })
@@ -170,10 +208,32 @@ export default function MeetingSummarizer() {
         throw new Error(errData?.error?.message || `API error: ${status}`);
       }
 
-      const data = await response.json();
-      const text = data.content?.map(b => b.text || "").join("") || "";
-      const clean = text.replace(/```json|```/g, "").trim();
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
+      let buffer = "";
 
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6).trim();
+          if (data === "[DONE]") continue;
+          try {
+            const event = JSON.parse(data);
+            if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+              accumulated += event.delta.text;
+              setStreamingText(accumulated);
+            }
+          } catch {}
+        }
+      }
+
+      const clean = accumulated.replace(/```json|```/g, "").trim();
       let parsed;
       try {
         parsed = JSON.parse(clean);
@@ -205,6 +265,7 @@ export default function MeetingSummarizer() {
       }
     } finally {
       setLoading(false);
+      setStreamingText("");
     }
   };
 
@@ -230,6 +291,11 @@ export default function MeetingSummarizer() {
     setSummary(null);
     setError(null);
   };
+
+  const isStreaming = loading && streamingText.length > 0;
+  const partial = isStreaming ? extractPartial(streamingText) : null;
+  const showOutput = !!summary || isStreaming;
+  const data = summary || partial || {};
 
   return (
     <div style={{
@@ -308,7 +374,7 @@ export default function MeetingSummarizer() {
         </div>
 
         {/* Demo CTA */}
-        {!summary && (
+        {!showOutput && (
           <div style={{
             background: "linear-gradient(135deg, rgba(37,99,235,0.12), rgba(30,64,175,0.08))",
             border: "1px solid rgba(59,130,246,0.25)",
@@ -458,7 +524,7 @@ export default function MeetingSummarizer() {
           </div>
         )}
 
-        {!summary ? (
+        {!showOutput ? (
           /* Input Panel */
           <div>
             <div
@@ -616,45 +682,74 @@ Press ⌘↵ to summarize"
               ) : "Generate Summary →"}
             </button>
 
-            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            <style>{`
+              @keyframes spin { to { transform: rotate(360deg); } }
+              @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.35; }
+              }
+              @keyframes shimmer {
+                0%, 100% { background-color: rgba(255,255,255,0.04); }
+                50% { background-color: rgba(255,255,255,0.09); }
+              }
+            `}</style>
           </div>
         ) : (
-          /* Summary Output */
+          /* Summary Output — used for both streaming (partial) and complete (summary) */
           <div>
-            {/* Action bar */}
-            <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
-              <button
-                onClick={reset}
-                style={{
-                  flex: 1, padding: "11px",
-                  background: "rgba(255,255,255,0.04)",
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  borderRadius: 10, cursor: "pointer",
-                  color: "#9BAACC", fontSize: 13,
-                  fontFamily: "'Courier New', monospace"
-                }}
-              >
-                ← New transcript
-              </button>
-              <button
-                onClick={copyAll}
-                style={{
-                  flex: 1, padding: "11px",
-                  background: copied ? "rgba(74,222,128,0.15)" : "rgba(59,130,246,0.15)",
-                  border: `1px solid ${copied ? "rgba(74,222,128,0.4)" : "rgba(59,130,246,0.4)"}`,
-                  borderRadius: 10, cursor: "pointer",
-                  color: copied ? "#4ADE80" : "#60A5FA", fontSize: 13,
-                  fontFamily: "'Courier New', monospace",
-                  transition: "all 0.2s"
-                }}
-              >
-                {copied ? "✓ Copied!" : "Copy all →"}
-              </button>
-            </div>
+            {/* Action bar — hidden while streaming */}
+            {!isStreaming && (
+              <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
+                <button
+                  onClick={reset}
+                  style={{
+                    flex: 1, padding: "11px",
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    borderRadius: 10, cursor: "pointer",
+                    color: "#9BAACC", fontSize: 13,
+                    fontFamily: "'Courier New', monospace"
+                  }}
+                >
+                  ← New transcript
+                </button>
+                <button
+                  onClick={copyAll}
+                  style={{
+                    flex: 1, padding: "11px",
+                    background: copied ? "rgba(74,222,128,0.15)" : "rgba(59,130,246,0.15)",
+                    border: `1px solid ${copied ? "rgba(74,222,128,0.4)" : "rgba(59,130,246,0.4)"}`,
+                    borderRadius: 10, cursor: "pointer",
+                    color: copied ? "#4ADE80" : "#60A5FA", fontSize: 13,
+                    fontFamily: "'Courier New', monospace",
+                    transition: "all 0.2s"
+                  }}
+                >
+                  {copied ? "✓ Copied!" : "Copy all →"}
+                </button>
+              </div>
+            )}
 
-            <div style={{ fontSize: 12, color: "#4ADE80", fontFamily: "'Courier New', monospace", marginBottom: 16 }}>
-              ✓ {summary.actionItems?.length || 0} action items + {summary.openQuestions?.length || 0} open questions saved to tracker
-            </div>
+            {/* Tracker save confirmation — only after complete */}
+            {summary && !isStreaming && (
+              <div style={{ fontSize: 12, color: "#4ADE80", fontFamily: "'Courier New', monospace", marginBottom: 16 }}>
+                ✓ {summary.actionItems?.length || 0} action items + {summary.openQuestions?.length || 0} open questions saved to tracker
+              </div>
+            )}
+
+            {/* Generating indicator */}
+            {isStreaming && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+                <span style={{
+                  display: "inline-block", width: 8, height: 8, borderRadius: "50%",
+                  background: "#4ADE80", boxShadow: "0 0 8px #4ADE80",
+                  animation: "pulse 1.2s ease-in-out infinite"
+                }} />
+                <span style={{ fontSize: 12, color: "#7A8499", fontFamily: "'Courier New', monospace", letterSpacing: 1 }}>
+                  GENERATING SUMMARY...
+                </span>
+              </div>
+            )}
 
             {/* Title + TL;DR */}
             <div style={{
@@ -666,70 +761,81 @@ Press ⌘↵ to summarize"
               <div style={{ fontSize: 11, letterSpacing: 3, color: "#60A5FA", fontFamily: "'Courier New', monospace", marginBottom: 12, textTransform: "uppercase" }}>
                 Meeting Summary
               </div>
-              <h2 style={{ fontSize: 24, fontWeight: 700, color: "#FFFFFF", margin: "0 0 16px", letterSpacing: -0.5 }}>
-                {summary.title}
-              </h2>
-              <p style={{ fontSize: 15, color: "#B0C0DE", lineHeight: 1.7, margin: 0 }}>
-                {summary.tldr}
-              </p>
+              {data.title ? (
+                <h2 style={{ fontSize: 24, fontWeight: 700, color: "#FFFFFF", margin: "0 0 16px", letterSpacing: -0.5 }}>
+                  {data.title}
+                </h2>
+              ) : (
+                <div style={{ height: 30, borderRadius: 6, background: "rgba(255,255,255,0.06)", marginBottom: 16, animation: "shimmer 1.5s ease-in-out infinite" }} />
+              )}
+              {data.tldr ? (
+                <p style={{ fontSize: 15, color: "#B0C0DE", lineHeight: 1.7, margin: 0 }}>
+                  {data.tldr}
+                </p>
+              ) : (
+                <div>
+                  <div style={{ height: 14, borderRadius: 4, background: "rgba(255,255,255,0.04)", marginBottom: 8, animation: "shimmer 1.5s ease-in-out infinite" }} />
+                  <div style={{ height: 14, borderRadius: 4, background: "rgba(255,255,255,0.04)", marginBottom: 8, width: "88%", animation: "shimmer 1.5s ease-in-out infinite" }} />
+                  <div style={{ height: 14, borderRadius: 4, background: "rgba(255,255,255,0.04)", width: "72%", animation: "shimmer 1.5s ease-in-out infinite" }} />
+                </div>
+              )}
             </div>
 
             {/* Grid: Decisions + Action Items */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-
-              {/* Decisions */}
-              {summary.decisions?.length > 0 && (
-                <Section
-                  label="DECISIONS"
-                  accent="#A78BFA"
-                  bg="rgba(167,139,250,0.08)"
-                  borderColor="rgba(167,139,250,0.2)"
-                >
-                  {summary.decisions.map((d, i) => (
-                    <div key={i} style={{ marginBottom: 14 }}>
-                      <div style={{ fontSize: 14, color: "#E2E8F0", lineHeight: 1.5, fontWeight: 600 }}>
-                        {d.decision}
-                      </div>
-                      {d.context && (
-                        <div style={{ fontSize: 13, color: "#8090B0", marginTop: 4, lineHeight: 1.5, fontStyle: "italic" }}>
-                          {d.context}
+            {(data.decisions?.length > 0 || data.actionItems?.length > 0) && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+                {data.decisions?.length > 0 && (
+                  <Section
+                    label="DECISIONS"
+                    accent="#A78BFA"
+                    bg="rgba(167,139,250,0.08)"
+                    borderColor="rgba(167,139,250,0.2)"
+                  >
+                    {data.decisions.map((d, i) => (
+                      <div key={i} style={{ marginBottom: 14 }}>
+                        <div style={{ fontSize: 14, color: "#E2E8F0", lineHeight: 1.5, fontWeight: 600 }}>
+                          {d.decision}
                         </div>
-                      )}
-                    </div>
-                  ))}
-                </Section>
-              )}
+                        {d.context && (
+                          <div style={{ fontSize: 13, color: "#8090B0", marginTop: 4, lineHeight: 1.5, fontStyle: "italic" }}>
+                            {d.context}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </Section>
+                )}
 
-              {/* Action Items */}
-              {summary.actionItems?.length > 0 && (
-                <Section
-                  label="ACTION ITEMS"
-                  accent="#4ADE80"
-                  bg="rgba(74,222,128,0.08)"
-                  borderColor="rgba(74,222,128,0.2)"
-                >
-                  {summary.actionItems.map((a, i) => (
-                    <div key={i} style={{
-                      marginBottom: 12, padding: "10px 14px",
-                      background: "rgba(255,255,255,0.03)",
-                      borderRadius: 8,
-                      borderLeft: "3px solid #4ADE80"
-                    }}>
-                      <div style={{ fontSize: 14, color: "#E2E8F0", lineHeight: 1.5, marginBottom: 6 }}>
-                        {a.task}
+                {data.actionItems?.length > 0 && (
+                  <Section
+                    label="ACTION ITEMS"
+                    accent="#4ADE80"
+                    bg="rgba(74,222,128,0.08)"
+                    borderColor="rgba(74,222,128,0.2)"
+                  >
+                    {data.actionItems.map((a, i) => (
+                      <div key={i} style={{
+                        marginBottom: 12, padding: "10px 14px",
+                        background: "rgba(255,255,255,0.03)",
+                        borderRadius: 8,
+                        borderLeft: "3px solid #4ADE80"
+                      }}>
+                        <div style={{ fontSize: 14, color: "#E2E8F0", lineHeight: 1.5, marginBottom: 6 }}>
+                          {a.task}
+                        </div>
+                        <div style={{ display: "flex", gap: 12 }}>
+                          <Tag label={a.owner} color="#4ADE80" icon="👤" />
+                          <Tag label={a.due} color="#FBBF24" icon="📅" />
+                        </div>
                       </div>
-                      <div style={{ display: "flex", gap: 12 }}>
-                        <Tag label={a.owner} color="#4ADE80" icon="👤" />
-                        <Tag label={a.due} color="#FBBF24" icon="📅" />
-                      </div>
-                    </div>
-                  ))}
-                </Section>
-              )}
-            </div>
+                    ))}
+                  </Section>
+                )}
+              </div>
+            )}
 
             {/* Topics */}
-            {summary.topics?.length > 0 && (
+            {data.topics?.length > 0 && (
               <Section
                 label="TOPICS DISCUSSED"
                 accent="#60A5FA"
@@ -738,7 +844,7 @@ Press ⌘↵ to summarize"
                 style={{ marginBottom: 16 }}
               >
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
-                  {summary.topics.map((t, i) => (
+                  {data.topics.map((t, i) => (
                     <div key={i} style={{
                       padding: "12px 16px",
                       background: "rgba(255,255,255,0.03)",
@@ -757,14 +863,14 @@ Press ⌘↵ to summarize"
             )}
 
             {/* Open Questions */}
-            {summary.openQuestions?.length > 0 && (
+            {data.openQuestions?.length > 0 && (
               <Section
                 label="OPEN QUESTIONS"
                 accent="#FBBF24"
                 bg="rgba(251,191,36,0.06)"
                 borderColor="rgba(251,191,36,0.2)"
               >
-                {summary.openQuestions.map((q, i) => (
+                {data.openQuestions.map((q, i) => (
                   <div key={i} style={{
                     display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 10
                   }}>
@@ -774,6 +880,18 @@ Press ⌘↵ to summarize"
                 ))}
               </Section>
             )}
+
+            <style>{`
+              @keyframes spin { to { transform: rotate(360deg); } }
+              @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.35; }
+              }
+              @keyframes shimmer {
+                0%, 100% { background-color: rgba(255,255,255,0.04); }
+                50% { background-color: rgba(255,255,255,0.09); }
+              }
+            `}</style>
           </div>
         )}
 

@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { demoSummary } from "./demoSummary";
 
 const SYSTEM_PROMPT = `You are an expert meeting summarizer for B2B SaaS teams. Analyze the meeting transcript and return ONLY valid JSON with this exact structure:
@@ -132,10 +132,10 @@ export default function MeetingSummarizer() {
     reader.readAsText(file);
   };
 
-  const unresolvedItems = savedMeetings.flatMap(m => [
+  const unresolvedItems = useMemo(() => savedMeetings.flatMap(m => [
     ...m.actionItems.filter(a => !a.resolved).map((a, i) => ({ ...a, type: "action", index: i, origIndex: m.actionItems.indexOf(a), meetingId: m.id, meetingTitle: m.title })),
     ...m.openQuestions.filter(q => !q.resolved).map((q, i) => ({ ...q, type: "question", index: i, origIndex: m.openQuestions.indexOf(q), meetingId: m.id, meetingTitle: m.title }))
-  ]);
+  ]), [savedMeetings]);
 
   const toggleResolved = (meetingId, type, index) => {
     const updated = savedMeetings.map(m => {

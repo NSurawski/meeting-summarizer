@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { demoSummary } from "./demoSummary";
 
 const SYSTEM_PROMPT = `You are an expert meeting summarizer for B2B SaaS teams. Analyze the meeting transcript and return ONLY valid JSON with this exact structure:
@@ -97,6 +97,11 @@ function extractPartial(raw) {
 
 export default function MeetingSummarizer() {
   const [transcript, setTranscript] = useState("");
+  const [wordCount, setWordCount] = useState(0);
+  useEffect(() => {
+    const t = setTimeout(() => setWordCount(transcript.trim() ? transcript.trim().split(/\s+/).length : 0), 300);
+    return () => clearTimeout(t);
+  }, [transcript]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
   const [streamingText, setStreamingText] = useState("");
@@ -766,7 +771,7 @@ Press ⌘↵ to summarize"
                 borderTop: "1px solid rgba(255,255,255,0.06)"
               }}>
                 <span style={{ fontSize: 12, color: "#7A8499", fontFamily: "'Courier New', monospace" }}>
-                  {transcript.trim().split(/\s+/).filter(Boolean).length} words
+                  {wordCount} words
                 </span>
                 {transcript && (
                   <button

@@ -191,13 +191,14 @@ export default function MeetingSummarizer() {
           "Content-Type": "application/json",
           "x-api-key": apiKey.trim(),
           "anthropic-version": "2023-06-01",
+          "anthropic-beta": "prompt-caching-2024-07-31",
           "anthropic-dangerous-direct-browser-access": "true"
         },
         body: JSON.stringify({
           model: model,
           max_tokens: 4000,
           stream: true,
-          system: SYSTEM_PROMPT,
+          system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
           messages: [{ role: "user", content: `Summarize this meeting transcript:\n\n${transcript}` }]
         })
       });

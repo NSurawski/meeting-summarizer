@@ -117,6 +117,7 @@ export default function MeetingSummarizer() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [viewingHistory, setViewingHistory] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [filterOwner, setFilterOwner] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [editableSummary, setEditableSummary] = useState(null);
   const textareaRef = useRef(null);
@@ -143,6 +144,16 @@ export default function MeetingSummarizer() {
     ...m.actionItems.filter(a => !a.resolved).map((a, i) => ({ ...a, type: "action", index: i, origIndex: m.actionItems.indexOf(a), meetingId: m.id, meetingTitle: m.title })),
     ...m.openQuestions.filter(q => !q.resolved).map((q, i) => ({ ...q, type: "question", index: i, origIndex: m.openQuestions.indexOf(q), meetingId: m.id, meetingTitle: m.title }))
   ]), [savedMeetings]);
+
+  const uniqueOwners = useMemo(() =>
+    [...new Set(unresolvedItems.filter(i => i.type === "action" && i.owner && i.owner !== "TBD").map(i => i.owner))].sort()
+  , [unresolvedItems]);
+
+  const filteredItems = useMemo(() =>
+    filterOwner
+      ? unresolvedItems.filter(item => item.type === "action" && item.owner?.toLowerCase() === filterOwner.toLowerCase())
+      : unresolvedItems
+  , [unresolvedItems, filterOwner]);
 
   const toggleResolved = (meetingId, type, index) => {
     const updated = savedMeetings.map(m => {
@@ -588,7 +599,7 @@ export default function MeetingSummarizer() {
                 style={{ background: "transparent", border: "none", cursor: "pointer", color: "#FBBF24", padding: 0, display: "flex", alignItems: "center", gap: 8 }}
               >
                 <span style={{ fontSize: 11, letterSpacing: 3, fontFamily: "'Courier New', monospace", textTransform: "uppercase" }}>
-                  FOLLOW-UP TRACKER ({unresolvedItems.length} open)
+                  FOLLOW-UP TRACKER ({filterOwner ? `${filteredItems.length} of ${unresolvedItems.length}` : unresolvedItems.length} open)
                 </span>
                 <span style={{ fontSize: 14 }}>{trackerOpen ? "▾" : "▸"}</span>
               </button>
@@ -610,8 +621,41 @@ export default function MeetingSummarizer() {
 
             {trackerOpen && (
               <div style={{ padding: "0 24px 20px" }}>
+                {uniqueOwners.length > 1 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+                    <button
+                      onClick={() => setFilterOwner("")}
+                      style={{
+                        padding: "3px 12px", borderRadius: 20, fontSize: 11, cursor: "pointer",
+                        fontFamily: "'Courier New', monospace",
+                        background: !filterOwner ? "rgba(251,191,36,0.15)" : "transparent",
+                        border: `1px solid ${!filterOwner ? "rgba(251,191,36,0.5)" : "rgba(255,255,255,0.12)"}`,
+                        color: !filterOwner ? "#FBBF24" : "#7A8499",
+                        transition: "all 0.15s"
+                      }}
+                    >
+                      All
+                    </button>
+                    {uniqueOwners.map(owner => (
+                      <button
+                        key={owner}
+                        onClick={() => setFilterOwner(filterOwner === owner ? "" : owner)}
+                        style={{
+                          padding: "3px 12px", borderRadius: 20, fontSize: 11, cursor: "pointer",
+                          fontFamily: "'Courier New', monospace",
+                          background: filterOwner === owner ? "rgba(74,222,128,0.15)" : "transparent",
+                          border: `1px solid ${filterOwner === owner ? "rgba(74,222,128,0.5)" : "rgba(255,255,255,0.12)"}`,
+                          color: filterOwner === owner ? "#4ADE80" : "#7A8499",
+                          transition: "all 0.15s"
+                        }}
+                      >
+                        {owner}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {Object.entries(
-                  unresolvedItems.reduce((groups, item) => {
+                  filteredItems.reduce((groups, item) => {
                     (groups[item.meetingTitle] = groups[item.meetingTitle] || []).push(item);
                     return groups;
                   }, {})

@@ -117,6 +117,8 @@ export default function MeetingSummarizer() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [viewingHistory, setViewingHistory] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editableSummary, setEditableSummary] = useState(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -175,6 +177,8 @@ export default function MeetingSummarizer() {
 
   const viewDemo = () => {
     setSummary(demoSummary);
+    setIsEditing(false);
+    setEditableSummary(null);
     setError(null);
   };
 
@@ -188,6 +192,8 @@ export default function MeetingSummarizer() {
     setError(null);
     setSummary(null);
     setStreamingText("");
+    setIsEditing(false);
+    setEditableSummary(null);
 
     try {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -255,20 +261,15 @@ export default function MeetingSummarizer() {
       }
 
       setSummary(parsed);
-
-      const newMeeting = {
-        id: "ms_" + Date.now(),
-        savedAt: new Date().toISOString(),
+      setEditableSummary({
         title: parsed.title,
         tldr: parsed.tldr,
         topics: parsed.topics || [],
         decisions: parsed.decisions || [],
-        actionItems: (parsed.actionItems || []).map(a => ({ ...a, resolved: false })),
-        openQuestions: (parsed.openQuestions || []).map(q => ({ ...q, resolved: false }))
-      };
-      const updatedMeetings = [...savedMeetings, newMeeting];
-      setSavedMeetings(updatedMeetings);
-      localStorage.setItem("meetingSummaries", JSON.stringify(updatedMeetings));
+        actionItems: parsed.actionItems || [],
+        openQuestions: parsed.openQuestions || []
+      });
+      setIsEditing(true);
     } catch (err) {
       if (err.name === "TypeError" && err.message === "Failed to fetch") {
         setError("Network error — could not reach the Anthropic API. Check your internet connection.");
@@ -281,18 +282,59 @@ export default function MeetingSummarizer() {
     }
   };
 
+  const saveToTracker = () => {
+    const toSave = editableSummary;
+    setSummary(toSave);
+    const newMeeting = {
+      id: "ms_" + Date.now(),
+      savedAt: new Date().toISOString(),
+      title: toSave.title,
+      tldr: toSave.tldr,
+      topics: toSave.topics || [],
+      decisions: toSave.decisions || [],
+      actionItems: (toSave.actionItems || []).map(a => ({ ...a, resolved: false })),
+      openQuestions: (toSave.openQuestions || []).map(q => ({ ...q, resolved: false }))
+    };
+    const updatedMeetings = [...savedMeetings, newMeeting];
+    setSavedMeetings(updatedMeetings);
+    localStorage.setItem("meetingSummaries", JSON.stringify(updatedMeetings));
+    setIsEditing(false);
+  };
+
+  const updateEditField = (field, value) =>
+    setEditableSummary(prev => ({ ...prev, [field]: value }));
+
+  const updateEditItem = (field, index, updates) =>
+    setEditableSummary(prev => ({
+      ...prev,
+      [field]: prev[field].map((item, i) => i === index ? { ...item, ...updates } : item)
+    }));
+
+  const removeEditItem = (field, index) =>
+    setEditableSummary(prev => ({
+      ...prev,
+      [field]: prev[field].filter((_, i) => i !== index)
+    }));
+
+  const addEditItem = (field, newItem) =>
+    setEditableSummary(prev => ({
+      ...prev,
+      [field]: [...(prev[field] || []), newItem]
+    }));
+
   const downloadMd = () => {
     if (!summary) return;
+    const src = isEditing ? editableSummary : summary;
     const text = [
-      `# ${summary.title}`,
-      `\n## TL;DR\n${summary.tldr}`,
-      summary.topics?.length ? `\n## Topics Discussed\n${summary.topics.map(t => `• ${t.title}: ${t.summary}`).join("\n")}` : "",
-      summary.decisions?.length ? `\n## Decisions\n${summary.decisions.map(d => `• ${d.decision}${d.context ? ` (${d.context})` : ""}`).join("\n")}` : "",
-      summary.actionItems?.length ? `\n## Action Items\n${summary.actionItems.map(a => `• ${a.task} — Owner: ${a.owner}, Due: ${a.due}`).join("\n")}` : "",
-      summary.openQuestions?.length ? `\n## Open Questions\n${summary.openQuestions.map(q => `• ${q.question}`).join("\n")}` : ""
+      `# ${src.title}`,
+      `\n## TL;DR\n${src.tldr}`,
+      src.topics?.length ? `\n## Topics Discussed\n${src.topics.map(t => `• ${t.title}: ${t.summary}`).join("\n")}` : "",
+      src.decisions?.length ? `\n## Decisions\n${src.decisions.map(d => `• ${d.decision}${d.context ? ` (${d.context})` : ""}`).join("\n")}` : "",
+      src.actionItems?.length ? `\n## Action Items\n${src.actionItems.map(a => `• ${a.task} — Owner: ${a.owner}, Due: ${a.due}`).join("\n")}` : "",
+      src.openQuestions?.length ? `\n## Open Questions\n${src.openQuestions.map(q => `• ${q.question}`).join("\n")}` : ""
     ].filter(Boolean).join("\n");
 
-    const slug = summary.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const slug = src.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     const blob = new Blob([text], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -304,13 +346,14 @@ export default function MeetingSummarizer() {
 
   const copyAll = () => {
     if (!summary) return;
+    const src = isEditing ? editableSummary : summary;
     const text = [
-      `# ${summary.title}`,
-      `\n## TL;DR\n${summary.tldr}`,
-      summary.topics?.length ? `\n## Topics Discussed\n${summary.topics.map(t => `• ${t.title}: ${t.summary}`).join("\n")}` : "",
-      summary.decisions?.length ? `\n## Decisions\n${summary.decisions.map(d => `• ${d.decision}${d.context ? ` (${d.context})` : ""}`).join("\n")}` : "",
-      summary.actionItems?.length ? `\n## Action Items\n${summary.actionItems.map(a => `• ${a.task} — Owner: ${a.owner}, Due: ${a.due}`).join("\n")}` : "",
-      summary.openQuestions?.length ? `\n## Open Questions\n${summary.openQuestions.map(q => `• ${q.question}`).join("\n")}` : ""
+      `# ${src.title}`,
+      `\n## TL;DR\n${src.tldr}`,
+      src.topics?.length ? `\n## Topics Discussed\n${src.topics.map(t => `• ${t.title}: ${t.summary}`).join("\n")}` : "",
+      src.decisions?.length ? `\n## Decisions\n${src.decisions.map(d => `• ${d.decision}${d.context ? ` (${d.context})` : ""}`).join("\n")}` : "",
+      src.actionItems?.length ? `\n## Action Items\n${src.actionItems.map(a => `• ${a.task} — Owner: ${a.owner}, Due: ${a.due}`).join("\n")}` : "",
+      src.openQuestions?.length ? `\n## Open Questions\n${src.openQuestions.map(q => `• ${q.question}`).join("\n")}` : ""
     ].filter(Boolean).join("\n");
 
     navigator.clipboard.writeText(text).then(() => {
@@ -328,6 +371,8 @@ export default function MeetingSummarizer() {
       actionItems: (meeting.actionItems || []).map(({ task, owner, due }) => ({ task, owner, due })),
       openQuestions: (meeting.openQuestions || []).map(({ question }) => ({ question }))
     });
+    setIsEditing(false);
+    setEditableSummary(null);
     setViewingHistory(true);
     setError(null);
     setStreamingText("");
@@ -338,12 +383,14 @@ export default function MeetingSummarizer() {
     setSummary(null);
     setError(null);
     setViewingHistory(false);
+    setIsEditing(false);
+    setEditableSummary(null);
   };
 
   const isStreaming = loading && streamingText.length > 0;
   const partial = isStreaming ? extractPartial(streamingText) : null;
   const showOutput = !!summary || isStreaming;
-  const data = summary || partial || {};
+  const data = isEditing ? (editableSummary || {}) : (summary || partial || {});
 
   return (
     <div style={{
@@ -893,11 +940,40 @@ Press ⌘↵ to summarize"
               </div>
             )}
 
-            {/* Tracker save confirmation — only after a fresh generation */}
+            {/* Tracker save / edit banner — only after a fresh generation */}
             {summary && !isStreaming && !viewingHistory && (
-              <div style={{ fontSize: 12, color: "#4ADE80", fontFamily: "'Courier New', monospace", marginBottom: 16 }}>
-                ✓ {summary.actionItems?.length || 0} action items + {summary.openQuestions?.length || 0} open questions saved to tracker
-              </div>
+              isEditing ? (
+                <div style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  marginBottom: 16, padding: "12px 18px",
+                  background: "rgba(251,191,36,0.07)",
+                  border: "1px solid rgba(251,191,36,0.25)",
+                  borderRadius: 10
+                }}>
+                  <span style={{ fontSize: 12, color: "#FBBF24", fontFamily: "'Courier New', monospace" }}>
+                    ✎ Review and edit before saving to tracker
+                  </span>
+                  <button
+                    onClick={saveToTracker}
+                    style={{
+                      background: "linear-gradient(135deg, #166534, #16A34A)",
+                      border: "1px solid #22C55E",
+                      borderRadius: 8, padding: "7px 20px",
+                      color: "#FFFFFF", fontSize: 13, fontWeight: 600,
+                      cursor: "pointer", fontFamily: "'Georgia', serif",
+                      transition: "transform 0.15s"
+                    }}
+                    onMouseEnter={e => e.target.style.transform = "translateY(-1px)"}
+                    onMouseLeave={e => e.target.style.transform = "translateY(0)"}
+                  >
+                    Save to tracker →
+                  </button>
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: "#4ADE80", fontFamily: "'Courier New', monospace", marginBottom: 16 }}>
+                  ✓ {summary.actionItems?.length || 0} action items + {summary.openQuestions?.length || 0} open questions saved to tracker
+                </div>
+              )
             )}
 
             {/* Generating indicator */}
@@ -925,16 +1001,50 @@ Press ⌘↵ to summarize"
                 Meeting Summary
               </div>
               {data.title ? (
-                <h2 style={{ fontSize: 24, fontWeight: 700, color: "#FFFFFF", margin: "0 0 16px", letterSpacing: -0.5 }}>
-                  {data.title}
-                </h2>
+                isEditing ? (
+                  <input
+                    value={editableSummary.title}
+                    onChange={e => updateEditField("title", e.target.value)}
+                    style={{
+                      fontSize: 24, fontWeight: 700, color: "#FFFFFF",
+                      letterSpacing: -0.5, fontFamily: "'Georgia', serif",
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.15)",
+                      borderRadius: 8,
+                      outline: "none", width: "100%",
+                      margin: "0 0 16px", padding: "6px 10px",
+                      display: "block", boxSizing: "border-box"
+                    }}
+                  />
+                ) : (
+                  <h2 style={{ fontSize: 24, fontWeight: 700, color: "#FFFFFF", margin: "0 0 16px", letterSpacing: -0.5 }}>
+                    {data.title}
+                  </h2>
+                )
               ) : (
                 <div style={{ height: 30, borderRadius: 6, background: "rgba(255,255,255,0.06)", marginBottom: 16, animation: "shimmer 1.5s ease-in-out infinite" }} />
               )}
               {data.tldr ? (
-                <p style={{ fontSize: 15, color: "#B0C0DE", lineHeight: 1.7, margin: 0 }}>
-                  {data.tldr}
-                </p>
+                isEditing ? (
+                  <textarea
+                    value={editableSummary.tldr}
+                    onChange={e => updateEditField("tldr", e.target.value)}
+                    style={{
+                      fontSize: 15, color: "#B0C0DE", lineHeight: 1.7,
+                      fontFamily: "'Georgia', serif",
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.15)",
+                      borderRadius: 8,
+                      outline: "none", width: "100%", resize: "vertical",
+                      padding: "6px 10px", minHeight: 72,
+                      display: "block", boxSizing: "border-box", margin: 0
+                    }}
+                  />
+                ) : (
+                  <p style={{ fontSize: 15, color: "#B0C0DE", lineHeight: 1.7, margin: 0 }}>
+                    {data.tldr}
+                  </p>
+                )
               ) : (
                 <div>
                   <div style={{ height: 14, borderRadius: 4, background: "rgba(255,255,255,0.04)", marginBottom: 8, animation: "shimmer 1.5s ease-in-out infinite" }} />
@@ -945,53 +1055,121 @@ Press ⌘↵ to summarize"
             </div>
 
             {/* Grid: Decisions + Action Items */}
-            {(data.decisions?.length > 0 || data.actionItems?.length > 0) && (
+            {(data.decisions?.length > 0 || data.actionItems?.length > 0 || isEditing) && (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-                {data.decisions?.length > 0 && (
+                {(data.decisions?.length > 0 || isEditing) && (
                   <Section
                     label="DECISIONS"
                     accent="#A78BFA"
                     bg="rgba(167,139,250,0.08)"
                     borderColor="rgba(167,139,250,0.2)"
                   >
-                    {data.decisions.map((d, i) => (
-                      <div key={i} style={{ marginBottom: 14 }}>
-                        <div style={{ fontSize: 14, color: "#E2E8F0", lineHeight: 1.5, fontWeight: 600 }}>
-                          {d.decision}
-                        </div>
-                        {d.context && (
-                          <div style={{ fontSize: 13, color: "#8090B0", marginTop: 4, lineHeight: 1.5, fontStyle: "italic" }}>
-                            {d.context}
+                    {(data.decisions || []).map((d, i) => (
+                      <div key={i} style={{ marginBottom: 14, display: "flex", alignItems: "flex-start", gap: 8 }}>
+                        {isEditing ? (
+                          <div style={{ flex: 1 }}>
+                            <input
+                              value={d.decision}
+                              onChange={e => updateEditItem("decisions", i, { decision: e.target.value })}
+                              placeholder="Decision"
+                              style={editFieldStyle("#E2E8F0", 14, 600)}
+                            />
+                            <input
+                              value={d.context || ""}
+                              onChange={e => updateEditItem("decisions", i, { context: e.target.value })}
+                              placeholder="Context (optional)"
+                              style={{ ...editFieldStyle("#8090B0", 13, 400), fontStyle: "italic", marginTop: 4 }}
+                            />
                           </div>
+                        ) : (
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 14, color: "#E2E8F0", lineHeight: 1.5, fontWeight: 600 }}>
+                              {d.decision}
+                            </div>
+                            {d.context && (
+                              <div style={{ fontSize: 13, color: "#8090B0", marginTop: 4, lineHeight: 1.5, fontStyle: "italic" }}>
+                                {d.context}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {isEditing && (
+                          <button onClick={() => removeEditItem("decisions", i)} style={deleteButtonStyle}>×</button>
                         )}
                       </div>
                     ))}
+                    {isEditing && (
+                      <button
+                        onClick={() => addEditItem("decisions", { decision: "", context: "" })}
+                        style={addButtonStyle("rgba(167,139,250,0.3)", "#A78BFA")}
+                      >
+                        + Add decision
+                      </button>
+                    )}
                   </Section>
                 )}
 
-                {data.actionItems?.length > 0 && (
+                {(data.actionItems?.length > 0 || isEditing) && (
                   <Section
                     label="ACTION ITEMS"
                     accent="#4ADE80"
                     bg="rgba(74,222,128,0.08)"
                     borderColor="rgba(74,222,128,0.2)"
                   >
-                    {data.actionItems.map((a, i) => (
+                    {(data.actionItems || []).map((a, i) => (
                       <div key={i} style={{
                         marginBottom: 12, padding: "10px 14px",
                         background: "rgba(255,255,255,0.03)",
                         borderRadius: 8,
                         borderLeft: "3px solid #4ADE80"
                       }}>
-                        <div style={{ fontSize: 14, color: "#E2E8F0", lineHeight: 1.5, marginBottom: 6 }}>
-                          {a.task}
-                        </div>
-                        <div style={{ display: "flex", gap: 12 }}>
-                          <Tag label={a.owner} color="#4ADE80" icon="👤" />
-                          <Tag label={a.due} color="#FBBF24" icon="📅" />
-                        </div>
+                        {isEditing ? (
+                          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                            <div style={{ flex: 1 }}>
+                              <input
+                                value={a.task}
+                                onChange={e => updateEditItem("actionItems", i, { task: e.target.value })}
+                                placeholder="Task"
+                                style={{ ...editFieldStyle("#E2E8F0", 14, 400), marginBottom: 6 }}
+                              />
+                              <div style={{ display: "flex", gap: 6 }}>
+                                <input
+                                  value={a.owner}
+                                  onChange={e => updateEditItem("actionItems", i, { owner: e.target.value })}
+                                  placeholder="Owner"
+                                  style={{ ...editFieldStyle("#4ADE80", 11, 400), fontFamily: "'Courier New', monospace", flex: 1 }}
+                                />
+                                <input
+                                  value={a.due}
+                                  onChange={e => updateEditItem("actionItems", i, { due: e.target.value })}
+                                  placeholder="Due"
+                                  style={{ ...editFieldStyle("#FBBF24", 11, 400), fontFamily: "'Courier New', monospace", flex: 1 }}
+                                />
+                              </div>
+                            </div>
+                            <button onClick={() => removeEditItem("actionItems", i)} style={deleteButtonStyle}>×</button>
+                          </div>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: 14, color: "#E2E8F0", lineHeight: 1.5, marginBottom: 6 }}>
+                              {a.task}
+                            </div>
+                            <div style={{ display: "flex", gap: 12 }}>
+                              <Tag label={a.owner} color="#4ADE80" icon="👤" />
+                              <Tag label={a.due} color="#FBBF24" icon="📅" />
+                            </div>
+                          </>
+                        )}
                       </div>
                     ))}
+                    {isEditing && (
+                      <button
+                        onClick={() => addEditItem("actionItems", { task: "", owner: "TBD", due: "TBD" })}
+                        style={addButtonStyle("rgba(74,222,128,0.3)", "#4ADE80")}
+                      >
+                        + Add action item
+                      </button>
+                    )}
                   </Section>
                 )}
               </div>
@@ -1026,21 +1204,41 @@ Press ⌘↵ to summarize"
             )}
 
             {/* Open Questions */}
-            {data.openQuestions?.length > 0 && (
+            {(data.openQuestions?.length > 0 || isEditing) && (
               <Section
                 label="OPEN QUESTIONS"
                 accent="#FBBF24"
                 bg="rgba(251,191,36,0.06)"
                 borderColor="rgba(251,191,36,0.2)"
               >
-                {data.openQuestions.map((q, i) => (
+                {(data.openQuestions || []).map((q, i) => (
                   <div key={i} style={{
                     display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 10
                   }}>
-                    <span style={{ color: "#FBBF24", marginTop: 2, flexShrink: 0 }}>?</span>
-                    <span style={{ fontSize: 14, color: "#C8D4E8", lineHeight: 1.6 }}>{q.question}</span>
+                    <span style={{ color: "#FBBF24", marginTop: isEditing ? 7 : 2, flexShrink: 0 }}>?</span>
+                    {isEditing ? (
+                      <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
+                        <input
+                          value={q.question}
+                          onChange={e => updateEditItem("openQuestions", i, { question: e.target.value })}
+                          placeholder="Question"
+                          style={{ ...editFieldStyle("#C8D4E8", 14, 400), flex: 1 }}
+                        />
+                        <button onClick={() => removeEditItem("openQuestions", i)} style={deleteButtonStyle}>×</button>
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: 14, color: "#C8D4E8", lineHeight: 1.6 }}>{q.question}</span>
+                    )}
                   </div>
                 ))}
+                {isEditing && (
+                  <button
+                    onClick={() => addEditItem("openQuestions", { question: "" })}
+                    style={addButtonStyle("rgba(251,191,36,0.3)", "#FBBF24")}
+                  >
+                    + Add question
+                  </button>
+                )}
               </Section>
             )}
 
@@ -1091,6 +1289,51 @@ Press ⌘↵ to summarize"
       </div>
     </div>
   );
+}
+
+function editFieldStyle(color, fontSize, fontWeight) {
+  return {
+    fontSize,
+    fontWeight,
+    color,
+    fontFamily: "'Georgia', serif",
+    background: "rgba(255,255,255,0.05)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    borderRadius: 6,
+    padding: "4px 8px",
+    outline: "none",
+    width: "100%",
+    boxSizing: "border-box",
+    lineHeight: 1.5
+  };
+}
+
+const deleteButtonStyle = {
+  background: "none",
+  border: "none",
+  color: "#4A5568",
+  cursor: "pointer",
+  fontSize: 18,
+  padding: "0 2px",
+  lineHeight: 1,
+  flexShrink: 0,
+  transition: "color 0.15s"
+};
+
+function addButtonStyle(borderColor, textColor) {
+  return {
+    background: "none",
+    border: `1px dashed ${borderColor}`,
+    borderRadius: 6,
+    padding: "6px 12px",
+    color: textColor,
+    fontSize: 12,
+    cursor: "pointer",
+    fontFamily: "'Courier New', monospace",
+    width: "100%",
+    textAlign: "left",
+    marginTop: 4
+  };
 }
 
 function Section({ label, accent, bg, borderColor, children, style }) {

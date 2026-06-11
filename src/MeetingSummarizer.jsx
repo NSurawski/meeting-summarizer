@@ -355,6 +355,52 @@ export default function MeetingSummarizer() {
     URL.revokeObjectURL(url);
   };
 
+  const downloadPdf = () => {
+    if (!summary) return;
+    const src = isEditing ? editableSummary : summary;
+    const esc = (str) => String(str ?? "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+    const topicsHtml = src.topics?.length
+      ? `<h2>Topics Discussed</h2>${src.topics.map(t => `<div class="topic"><strong>${esc(t.title)}</strong><p>${esc(t.summary)}</p></div>`).join("")}`
+      : "";
+    const decisionsHtml = src.decisions?.length
+      ? `<h2>Decisions</h2><ul>${src.decisions.map(d => `<li><strong>${esc(d.decision)}</strong>${d.context ? `<br><em>${esc(d.context)}</em>` : ""}</li>`).join("")}</ul>`
+      : "";
+    const actionsHtml = src.actionItems?.length
+      ? `<h2>Action Items</h2><table><thead><tr><th>Task</th><th>Owner</th><th>Due</th></tr></thead><tbody>${src.actionItems.map(a => `<tr><td>${esc(a.task)}</td><td>${esc(a.owner)}</td><td>${esc(a.due)}</td></tr>`).join("")}</tbody></table>`
+      : "";
+    const questionsHtml = src.openQuestions?.length
+      ? `<h2>Open Questions</h2><ul>${src.openQuestions.map(q => `<li>${esc(q.question)}</li>`).join("")}</ul>`
+      : "";
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(src.title)}</title><style>
+      body{font-family:Georgia,serif;max-width:760px;margin:40px auto;padding:0 24px;color:#111;line-height:1.6}
+      h1{font-size:26px;margin:0 0 6px}
+      .meta{font-size:12px;color:#aaa;margin-bottom:24px}
+      .tldr{font-size:15px;color:#333;margin:0 0 32px;padding:14px 18px;background:#f5f7fa;border-left:4px solid #2563EB;border-radius:4px}
+      h2{font-size:12px;text-transform:uppercase;letter-spacing:2px;color:#888;margin:28px 0 10px;border-bottom:1px solid #eee;padding-bottom:6px}
+      ul{padding-left:20px;margin:0}li{margin-bottom:8px;font-size:14px}
+      table{width:100%;border-collapse:collapse;font-size:14px}
+      th{text-align:left;padding:8px 12px;background:#f5f7fa;border-bottom:2px solid #ddd;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#888}
+      td{padding:8px 12px;border-bottom:1px solid #eee;vertical-align:top}
+      .topic{margin-bottom:12px}.topic strong{display:block;font-size:14px;color:#222}.topic p{margin:4px 0 0;font-size:13px;color:#555}
+      @media print{body{margin:0}}
+    </style></head><body>
+      <h1>${esc(src.title)}</h1>
+      <div class="meta">Generated ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
+      <div class="tldr">${esc(src.tldr)}</div>
+      ${topicsHtml}${decisionsHtml}${actionsHtml}${questionsHtml}
+    </body></html>`;
+
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    win.print();
+  };
+
   const copyAll = () => {
     if (!summary) return;
     const src = isEditing ? editableSummary : summary;
@@ -980,6 +1026,20 @@ Press ⌘↵ to summarize"
                   }}
                 >
                   Download .md ↓
+                </button>
+                <button
+                  onClick={downloadPdf}
+                  style={{
+                    flex: 1, padding: "11px",
+                    background: "rgba(251,191,36,0.08)",
+                    border: "1px solid rgba(251,191,36,0.3)",
+                    borderRadius: 10, cursor: "pointer",
+                    color: "#FBBF24", fontSize: 13,
+                    fontFamily: "'Courier New', monospace",
+                    transition: "all 0.2s"
+                  }}
+                >
+                  Download PDF ↓
                 </button>
               </div>
             )}

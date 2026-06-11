@@ -419,6 +419,37 @@ describe('copy all', () => {
   })
 })
 
+describe('download PDF', () => {
+  it('opens a print window with summary content', async () => {
+    const mockWrite = vi.fn()
+    const mockClose = vi.fn()
+    const mockFocus = vi.fn()
+    const mockPrint = vi.fn()
+    vi.stubGlobal('open', vi.fn().mockReturnValue({
+      document: { write: mockWrite, close: mockClose },
+      focus: mockFocus,
+      print: mockPrint,
+    }))
+
+    mockFetchSuccess()
+    render(<MeetingSummarizer />)
+    fillAndSubmit()
+    await waitFor(() => screen.getByRole('heading', { level: 2, name: 'Test Meeting' }))
+
+    fireEvent.click(screen.getByText(/download pdf/i))
+
+    expect(window.open).toHaveBeenCalledWith('', '_blank')
+    expect(mockWrite).toHaveBeenCalled()
+    const written = mockWrite.mock.calls[0][0]
+    expect(written).toContain('Test Meeting')
+    expect(written).toContain('Test TL;DR content.')
+    expect(written).toContain('Write tests')
+    expect(written).toContain('Alice')
+    expect(written).toContain('Timeline unclear?')
+    expect(mockPrint).toHaveBeenCalled()
+  })
+})
+
 describe('reset', () => {
   it('returns to the transcript input after clicking "New transcript"', async () => {
     const user = userEvent.setup()

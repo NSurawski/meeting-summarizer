@@ -102,6 +102,24 @@ export default function MeetingSummarizer() {
     const t = setTimeout(() => setWordCount(transcript.trim() ? transcript.trim().split(/\s+/).length : 0), 300);
     return () => clearTimeout(t);
   }, [transcript]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "n") {
+        e.preventDefault();
+        setTranscript("");
+        setSummary(null);
+        setError(null);
+        setViewingHistory(false);
+        setIsEditing(false);
+        setEditableSummary(null);
+        setPendingTags([]);
+        setTagInput("");
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
   const [streamingText, setStreamingText] = useState("");
@@ -1052,8 +1070,8 @@ Press ⌘↵ to summarize"
                 transition: "all 0.2s",
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 10
               }}
-              onMouseEnter={e => { if (transcript.trim() && !loading) e.target.style.transform = "translateY(-1px)"; }}
-              onMouseLeave={e => { e.target.style.transform = "translateY(0)"; }}
+              onMouseEnter={e => { if (transcript.trim() && !loading) e.currentTarget.style.transform = "translateY(-1px)"; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; }}
             >
               {loading ? (
                 <>
@@ -1067,6 +1085,22 @@ Press ⌘↵ to summarize"
                 </>
               ) : "Generate Summary →"}
             </button>
+
+            <div style={{
+              display: "flex", justifyContent: "center", gap: 20, marginTop: 10
+            }}>
+              {[["⌘↵", "summarize"], ["⌘N", "new transcript"]].map(([key, label]) => (
+                <span key={key} style={{ fontSize: 11, color: "#3A4560", fontFamily: "'Courier New', monospace", display: "flex", alignItems: "center", gap: 5 }}>
+                  <kbd style={{
+                    padding: "1px 6px", borderRadius: 4,
+                    background: "rgba(255,255,255,0.05)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    color: "#5A6580", fontSize: 10
+                  }}>{key}</kbd>
+                  {label}
+                </span>
+              ))}
+            </div>
 
             <style>{`
               @keyframes spin { to { transform: rotate(360deg); } }

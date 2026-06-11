@@ -123,6 +123,8 @@ export default function MeetingSummarizer() {
   const [editableSummary, setEditableSummary] = useState(null);
   const [pendingTags, setPendingTags] = useState([]);
   const [tagInput, setTagInput] = useState("");
+  const [editingTitleId, setEditingTitleId] = useState(null);
+  const [editingTitleValue, setEditingTitleValue] = useState("");
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -167,6 +169,18 @@ export default function MeetingSummarizer() {
     }
     return items;
   }, [unresolvedItems, filterOwner, filterTag, savedMeetings]);
+
+  const commitTitleEdit = (meetingId) => {
+    const newTitle = editingTitleValue.trim();
+    if (newTitle) {
+      const updated = savedMeetings.map(m => m.id === meetingId ? { ...m, title: newTitle } : m);
+      setSavedMeetings(updated);
+      localStorage.setItem("meetingSummaries", JSON.stringify(updated));
+      if (viewingHistory && summary) setSummary(prev => ({ ...prev, title: newTitle }));
+    }
+    setEditingTitleId(null);
+    setEditingTitleValue("");
+  };
 
   const toggleResolved = (meetingId, type, index) => {
     const updated = savedMeetings.map(m => {
@@ -822,10 +836,36 @@ export default function MeetingSummarizer() {
                     padding: "12px 0",
                     borderBottom: i < arr.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none"
                   }}>
-                    <div>
-                      <div style={{ fontSize: 14, color: "#C8D4E8", marginBottom: 4, lineHeight: 1.4 }}>
-                        {m.title}
-                      </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {editingTitleId === m.id ? (
+                        <input
+                          autoFocus
+                          value={editingTitleValue}
+                          onChange={e => setEditingTitleValue(e.target.value)}
+                          onBlur={() => commitTitleEdit(m.id)}
+                          onKeyDown={e => {
+                            if (e.key === "Enter") { e.preventDefault(); commitTitleEdit(m.id); }
+                            if (e.key === "Escape") { setEditingTitleId(null); setEditingTitleValue(""); }
+                          }}
+                          style={{
+                            fontSize: 14, color: "#C8D4E8", lineHeight: 1.4,
+                            fontFamily: "'Georgia', serif",
+                            background: "rgba(255,255,255,0.06)",
+                            border: "1px solid rgba(255,255,255,0.2)",
+                            borderRadius: 6, outline: "none",
+                            padding: "2px 8px", marginBottom: 4,
+                            width: "100%", boxSizing: "border-box"
+                          }}
+                        />
+                      ) : (
+                        <div
+                          onClick={() => { setEditingTitleId(m.id); setEditingTitleValue(m.title); }}
+                          title="Click to rename"
+                          style={{ fontSize: 14, color: "#C8D4E8", marginBottom: 4, lineHeight: 1.4, cursor: "text" }}
+                        >
+                          {m.title}
+                        </div>
+                      )}
                       <div style={{ fontSize: 11, color: "#4A5568", fontFamily: "'Courier New', monospace" }}>
                         {new Date(m.savedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                         {" · "}{m.actionItems?.length || 0} action{m.actionItems?.length !== 1 ? "s" : ""}

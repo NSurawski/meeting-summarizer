@@ -118,8 +118,11 @@ export default function MeetingSummarizer() {
   const [viewingHistory, setViewingHistory] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [filterOwner, setFilterOwner] = useState("");
+  const [filterTag, setFilterTag] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [editableSummary, setEditableSummary] = useState(null);
+  const [pendingTags, setPendingTags] = useState([]);
+  const [tagInput, setTagInput] = useState("");
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -149,11 +152,21 @@ export default function MeetingSummarizer() {
     [...new Set(unresolvedItems.filter(i => i.type === "action" && i.owner && i.owner !== "TBD").map(i => i.owner))].sort()
   , [unresolvedItems]);
 
-  const filteredItems = useMemo(() =>
-    filterOwner
-      ? unresolvedItems.filter(item => item.type === "action" && item.owner?.toLowerCase() === filterOwner.toLowerCase())
-      : unresolvedItems
-  , [unresolvedItems, filterOwner]);
+  const uniqueTags = useMemo(() =>
+    [...new Set(savedMeetings.flatMap(m => m.tags || []))].sort()
+  , [savedMeetings]);
+
+  const filteredItems = useMemo(() => {
+    let items = unresolvedItems;
+    if (filterTag) {
+      const taggedIds = new Set(savedMeetings.filter(m => m.tags?.includes(filterTag)).map(m => m.id));
+      items = items.filter(item => taggedIds.has(item.meetingId));
+    }
+    if (filterOwner) {
+      items = items.filter(item => item.type === "action" && item.owner?.toLowerCase() === filterOwner.toLowerCase());
+    }
+    return items;
+  }, [unresolvedItems, filterOwner, filterTag, savedMeetings]);
 
   const toggleResolved = (meetingId, type, index) => {
     const updated = savedMeetings.map(m => {
@@ -304,12 +317,15 @@ export default function MeetingSummarizer() {
       topics: toSave.topics || [],
       decisions: toSave.decisions || [],
       actionItems: (toSave.actionItems || []).map(a => ({ ...a, resolved: false })),
-      openQuestions: (toSave.openQuestions || []).map(q => ({ ...q, resolved: false }))
+      openQuestions: (toSave.openQuestions || []).map(q => ({ ...q, resolved: false })),
+      tags: pendingTags
     };
     const updatedMeetings = [...savedMeetings, newMeeting];
     setSavedMeetings(updatedMeetings);
     localStorage.setItem("meetingSummaries", JSON.stringify(updatedMeetings));
     setIsEditing(false);
+    setPendingTags([]);
+    setTagInput("");
   };
 
   const updateEditField = (field, value) =>
@@ -442,6 +458,8 @@ export default function MeetingSummarizer() {
     setViewingHistory(false);
     setIsEditing(false);
     setEditableSummary(null);
+    setPendingTags([]);
+    setTagInput("");
   };
 
   const isStreaming = loading && streamingText.length > 0;
@@ -645,7 +663,7 @@ export default function MeetingSummarizer() {
                 style={{ background: "transparent", border: "none", cursor: "pointer", color: "#FBBF24", padding: 0, display: "flex", alignItems: "center", gap: 8 }}
               >
                 <span style={{ fontSize: 11, letterSpacing: 3, fontFamily: "'Courier New', monospace", textTransform: "uppercase" }}>
-                  FOLLOW-UP TRACKER ({filterOwner ? `${filteredItems.length} of ${unresolvedItems.length}` : unresolvedItems.length} open)
+                  FOLLOW-UP TRACKER ({(filterOwner || filterTag) ? `${filteredItems.length} of ${unresolvedItems.length}` : unresolvedItems.length} open)
                 </span>
                 <span style={{ fontSize: 14 }}>{trackerOpen ? "▾" : "▸"}</span>
               </button>
@@ -668,7 +686,10 @@ export default function MeetingSummarizer() {
             {trackerOpen && (
               <div style={{ padding: "0 24px 20px" }}>
                 {uniqueOwners.length > 1 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: uniqueTags.length > 0 ? 8 : 16 }}>
+                    <span style={{ fontSize: 10, color: "#7A8499", fontFamily: "'Courier New', monospace", letterSpacing: 1, alignSelf: "center", marginRight: 2 }}>
+                      OWNER:
+                    </span>
                     <button
                       onClick={() => setFilterOwner("")}
                       style={{
@@ -696,6 +717,29 @@ export default function MeetingSummarizer() {
                         }}
                       >
                         {owner}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {uniqueTags.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+                    <span style={{ fontSize: 10, color: "#7A8499", fontFamily: "'Courier New', monospace", letterSpacing: 1, alignSelf: "center", marginRight: 2 }}>
+                      TAG:
+                    </span>
+                    {uniqueTags.map(tag => (
+                      <button
+                        key={tag}
+                        onClick={() => setFilterTag(filterTag === tag ? "" : tag)}
+                        style={{
+                          padding: "3px 12px", borderRadius: 20, fontSize: 11, cursor: "pointer",
+                          fontFamily: "'Courier New', monospace",
+                          background: filterTag === tag ? "rgba(96,165,250,0.15)" : "transparent",
+                          border: `1px solid ${filterTag === tag ? "rgba(96,165,250,0.5)" : "rgba(255,255,255,0.12)"}`,
+                          color: filterTag === tag ? "#60A5FA" : "#7A8499",
+                          transition: "all 0.15s"
+                        }}
+                      >
+                        {tag}
                       </button>
                     ))}
                   </div>
@@ -787,6 +831,22 @@ export default function MeetingSummarizer() {
                         {" · "}{m.actionItems?.length || 0} action{m.actionItems?.length !== 1 ? "s" : ""}
                         {" · "}{m.openQuestions?.length || 0} question{m.openQuestions?.length !== 1 ? "s" : ""}
                       </div>
+                      {m.tags?.length > 0 && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 5 }}>
+                          {m.tags.map(tag => (
+                            <span
+                              key={tag}
+                              style={{
+                                padding: "1px 8px", borderRadius: 10,
+                                background: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.2)",
+                                color: "#60A5FA", fontSize: 10, fontFamily: "'Courier New', monospace"
+                              }}
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <button
                       onClick={() => viewSavedSummary(m)}
@@ -1048,30 +1108,77 @@ Press ⌘↵ to summarize"
             {summary && !isStreaming && !viewingHistory && (
               isEditing ? (
                 <div style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
                   marginBottom: 16, padding: "12px 18px",
                   background: "rgba(251,191,36,0.07)",
                   border: "1px solid rgba(251,191,36,0.25)",
                   borderRadius: 10
                 }}>
-                  <span style={{ fontSize: 12, color: "#FBBF24", fontFamily: "'Courier New', monospace" }}>
-                    ✎ Review and edit before saving to tracker
-                  </span>
-                  <button
-                    onClick={saveToTracker}
-                    style={{
-                      background: "linear-gradient(135deg, #166534, #16A34A)",
-                      border: "1px solid #22C55E",
-                      borderRadius: 8, padding: "7px 20px",
-                      color: "#FFFFFF", fontSize: 13, fontWeight: 600,
-                      cursor: "pointer", fontFamily: "'Georgia', serif",
-                      transition: "transform 0.15s"
-                    }}
-                    onMouseEnter={e => e.target.style.transform = "translateY(-1px)"}
-                    onMouseLeave={e => e.target.style.transform = "translateY(0)"}
-                  >
-                    Save to tracker →
-                  </button>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                    <span style={{ fontSize: 12, color: "#FBBF24", fontFamily: "'Courier New', monospace" }}>
+                      ✎ Review and edit before saving to tracker
+                    </span>
+                    <button
+                      onClick={saveToTracker}
+                      style={{
+                        background: "linear-gradient(135deg, #166534, #16A34A)",
+                        border: "1px solid #22C55E",
+                        borderRadius: 8, padding: "7px 20px",
+                        color: "#FFFFFF", fontSize: 13, fontWeight: 600,
+                        cursor: "pointer", fontFamily: "'Georgia', serif",
+                        transition: "transform 0.15s"
+                      }}
+                      onMouseEnter={e => e.target.style.transform = "translateY(-1px)"}
+                      onMouseLeave={e => e.target.style.transform = "translateY(0)"}
+                    >
+                      Save to tracker →
+                    </button>
+                  </div>
+                  <div style={{
+                    display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center",
+                    padding: "6px 10px", borderRadius: 8,
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.08)"
+                  }}>
+                    <span style={{ fontSize: 10, color: "#7A8499", fontFamily: "'Courier New', monospace", letterSpacing: 1, marginRight: 2 }}>
+                      TAGS:
+                    </span>
+                    {pendingTags.map(tag => (
+                      <span
+                        key={tag}
+                        onClick={() => setPendingTags(t => t.filter(x => x !== tag))}
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: 4,
+                          padding: "2px 8px", borderRadius: 12,
+                          background: "rgba(96,165,250,0.15)", border: "1px solid rgba(96,165,250,0.4)",
+                          color: "#60A5FA", fontSize: 11, cursor: "pointer",
+                          fontFamily: "'Courier New', monospace"
+                        }}
+                      >
+                        {tag} ×
+                      </span>
+                    ))}
+                    <input
+                      value={tagInput}
+                      onChange={e => setTagInput(e.target.value)}
+                      onKeyDown={e => {
+                        if ((e.key === "Enter" || e.key === ",") && tagInput.trim()) {
+                          e.preventDefault();
+                          const t = tagInput.trim().replace(/,\s*$/, "");
+                          if (t && !pendingTags.includes(t)) setPendingTags(prev => [...prev, t]);
+                          setTagInput("");
+                        }
+                        if (e.key === "Backspace" && !tagInput && pendingTags.length) {
+                          setPendingTags(prev => prev.slice(0, -1));
+                        }
+                      }}
+                      placeholder={pendingTags.length === 0 ? "Add tags: 1:1, standup… (Enter to add)" : "Add more…"}
+                      style={{
+                        background: "transparent", border: "none", outline: "none",
+                        color: "#C8D4E8", fontSize: 11, fontFamily: "'Courier New', monospace",
+                        minWidth: 160, flex: 1
+                      }}
+                    />
+                  </div>
                 </div>
               ) : (
                 <div style={{ fontSize: 12, color: "#4ADE80", fontFamily: "'Courier New', monospace", marginBottom: 16 }}>

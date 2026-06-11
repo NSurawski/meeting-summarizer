@@ -1622,6 +1622,7 @@ function addButtonStyle(borderColor, textColor) {
 }
 
 function Section({ label, accent, bg, borderColor, children, style }) {
+  const [open, setOpen] = useState(true);
   return (
     <div style={{
       background: bg,
@@ -1630,14 +1631,20 @@ function Section({ label, accent, bg, borderColor, children, style }) {
       marginBottom: 0,
       ...style
     }}>
-      <div style={{
-        fontSize: 11, letterSpacing: 3, color: accent,
-        fontFamily: "'Courier New', monospace",
-        marginBottom: 16, textTransform: "uppercase"
-      }}>
-        {label}
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{
+          fontSize: 11, letterSpacing: 3, color: accent,
+          fontFamily: "'Courier New', monospace",
+          marginBottom: open ? 16 : 0, textTransform: "uppercase",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          cursor: "pointer", userSelect: "none"
+        }}
+      >
+        <span>{label}</span>
+        <span style={{ fontSize: 13, opacity: 0.6, letterSpacing: 0 }}>{open ? "▾" : "▸"}</span>
       </div>
-      {children}
+      {open && children}
     </div>
   );
 }

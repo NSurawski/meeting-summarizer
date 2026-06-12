@@ -41,6 +41,23 @@ Rules:
 - Return ONLY the JSON object, no markdown, no explanation`;
 }
 
+const MODEL_PRICING = {
+  "claude-haiku-4-5-20251001": { input: 0.80, output: 4.00 },
+  "claude-sonnet-4-6":          { input: 3.00, output: 15.00 }
+};
+const ESTIMATED_OUTPUT_TOKENS = 600;
+
+function fmtTokens(n) {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
+}
+
+function fmtCost(dollars) {
+  if (dollars < 0.001) return "< $0.001";
+  if (dollars < 0.01)  return `$${dollars.toFixed(4)}`;
+  if (dollars < 0.10)  return `$${dollars.toFixed(3)}`;
+  return `$${dollars.toFixed(2)}`;
+}
+
 const SAMPLE_TRANSCRIPT = `Sarah: Okay let's get started. Today we need to finalize the Q3 roadmap and talk through the dashboard redesign feedback.
 
 Marcus: I reviewed the user research from last week. The main complaint is that the filters are too buried. Three separate customers mentioned it in interviews.
@@ -170,6 +187,18 @@ export default function MeetingSummarizer() {
   const extraSections = promptSettings.extraSections || [];
   const customInstructions = promptSettings.customInstructions || "";
   const hasCustomSettings = verbosity !== "concise" || extraSections.length > 0 || customInstructions.trim();
+
+  const costEstimate = useMemo(() => {
+    if (!transcript.trim()) return null;
+    const pricing = MODEL_PRICING[model];
+    if (!pricing) return null;
+    const inputTokens = Math.ceil(
+      (transcript.length + buildSystemPrompt(promptSettings).length) / 4
+    ) + 20;
+    const totalTokens = inputTokens + ESTIMATED_OUTPUT_TOKENS;
+    const cost = (inputTokens / 1_000_000) * pricing.input + (ESTIMATED_OUTPUT_TOKENS / 1_000_000) * pricing.output;
+    return { inputTokens, totalTokens, cost };
+  }, [transcript, model, promptSettings]);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -1272,9 +1301,16 @@ Press ⌘↵ to summarize"
                 padding: "12px 20px",
                 borderTop: "1px solid rgba(255,255,255,0.06)"
               }}>
-                <span style={{ fontSize: 12, color: "#7A8499", fontFamily: "'Courier New', monospace" }}>
-                  {wordCount} words
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                  <span style={{ fontSize: 12, color: "#7A8499", fontFamily: "'Courier New', monospace" }}>
+                    {wordCount} words
+                  </span>
+                  {costEstimate && (
+                    <span style={{ fontSize: 12, color: "#4A5568", fontFamily: "'Courier New', monospace" }} title="Rough estimate based on character count. Actual cost may vary.">
+                      ~{fmtTokens(costEstimate.totalTokens)} tokens · ~{fmtCost(costEstimate.cost)}
+                    </span>
+                  )}
+                </div>
                 {transcript && (
                   <button
                     onClick={reset}

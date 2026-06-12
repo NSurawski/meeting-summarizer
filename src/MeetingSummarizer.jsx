@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import { demoSummary } from "./demoSummary";
 
-function buildSystemPrompt({ verbosity = "concise", extraSections = [], customInstructions = "" } = {}) {
+function buildSystemPrompt({ verbosity = "concise", extraSections = [], customInstructions = "", language = "en" } = {}) {
   const parkingLotSchema = extraSections.includes("parkingLot")
     ? `,\n  "parkingLot": [\n    { "item": "miscellaneous item, tangent, or topic to revisit later" }\n  ]`
     : "";
@@ -13,6 +13,10 @@ function buildSystemPrompt({ verbosity = "concise", extraSections = [], customIn
     : "Be concise and specific.";
   const customRule = customInstructions.trim()
     ? `\n- ${customInstructions.trim()}`
+    : "";
+  const langEntry = LANGUAGES.find(l => l.code === language);
+  const languageRule = langEntry?.promptName
+    ? `\n- Write all summary text in ${langEntry.promptName}. Keep all JSON keys in English.`
     : "";
 
   return `You are an expert meeting summarizer for B2B SaaS teams. Analyze the meeting transcript and return ONLY valid JSON with this exact structure:
@@ -37,9 +41,22 @@ function buildSystemPrompt({ verbosity = "concise", extraSections = [], customIn
 Rules:
 - ${verbosityRule}
 - Infer owners from context (e.g. if someone says "I'll handle X", they own it)
-- If something is unclear, mark it as TBD${customRule}
+- If something is unclear, mark it as TBD${customRule}${languageRule}
 - Return ONLY the JSON object, no markdown, no explanation`;
 }
+
+const LANGUAGES = [
+  { code: "en", label: "English",            promptName: null },
+  { code: "es", label: "Español",            promptName: "Spanish" },
+  { code: "fr", label: "Français",           promptName: "French" },
+  { code: "de", label: "Deutsch",            promptName: "German" },
+  { code: "pt", label: "Português",          promptName: "Portuguese" },
+  { code: "it", label: "Italiano",           promptName: "Italian" },
+  { code: "nl", label: "Nederlands",         promptName: "Dutch" },
+  { code: "ja", label: "日本語",              promptName: "Japanese" },
+  { code: "zh", label: "中文",               promptName: "Simplified Chinese" },
+  { code: "ko", label: "한국어",              promptName: "Korean" },
+];
 
 const MODEL_PRICING = {
   "claude-haiku-4-5-20251001": { input: 0.80, output: 4.00 },
@@ -186,7 +203,8 @@ export default function MeetingSummarizer() {
   const verbosity = promptSettings.verbosity || "concise";
   const extraSections = promptSettings.extraSections || [];
   const customInstructions = promptSettings.customInstructions || "";
-  const hasCustomSettings = verbosity !== "concise" || extraSections.length > 0 || customInstructions.trim();
+  const language = promptSettings.language || "en";
+  const hasCustomSettings = verbosity !== "concise" || extraSections.length > 0 || customInstructions.trim() || language !== "en";
 
   const costEstimate = useMemo(() => {
     if (!transcript.trim()) return null;
@@ -774,6 +792,34 @@ export default function MeetingSummarizer() {
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Language */}
+              <div>
+                <div style={{ fontSize: 10, color: "#7A8499", fontFamily: "'Courier New', monospace", letterSpacing: 1, marginBottom: 8 }}>OUTPUT LANGUAGE</div>
+                <select
+                  value={language}
+                  onChange={e => updatePromptSetting("language", e.target.value)}
+                  style={{
+                    width: "100%",
+                    background: "rgba(255,255,255,0.06)",
+                    border: `1px solid ${language !== "en" ? "rgba(96,165,250,0.4)" : "rgba(255,255,255,0.12)"}`,
+                    borderRadius: 8,
+                    color: language !== "en" ? "#60A5FA" : "#C8D4E8",
+                    fontSize: 12,
+                    fontFamily: "'Courier New', monospace",
+                    padding: "7px 12px",
+                    outline: "none",
+                    cursor: "pointer",
+                    transition: "border-color 0.15s, color 0.15s"
+                  }}
+                >
+                  {LANGUAGES.map(lang => (
+                    <option key={lang.code} value={lang.code}>
+                      {lang.label}{lang.promptName ? ` (${lang.promptName})` : ""}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Extra Sections */}

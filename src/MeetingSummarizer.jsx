@@ -143,6 +143,7 @@ export default function MeetingSummarizer() {
   const [tagInput, setTagInput] = useState("");
   const [editingTitleId, setEditingTitleId] = useState(null);
   const [editingTitleValue, setEditingTitleValue] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -185,8 +186,32 @@ export default function MeetingSummarizer() {
     if (filterOwner) {
       items = items.filter(item => item.type === "action" && item.owner?.toLowerCase() === filterOwner.toLowerCase());
     }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      items = items.filter(item => {
+        const text = item.type === "action" ? item.task : item.question;
+        return (
+          text?.toLowerCase().includes(q) ||
+          item.owner?.toLowerCase().includes(q) ||
+          item.meetingTitle?.toLowerCase().includes(q)
+        );
+      });
+    }
     return items;
-  }, [unresolvedItems, filterOwner, filterTag, savedMeetings]);
+  }, [unresolvedItems, filterOwner, filterTag, searchQuery, savedMeetings]);
+
+  const filteredMeetings = useMemo(() => {
+    if (!searchQuery.trim()) return savedMeetings;
+    const q = searchQuery.toLowerCase();
+    return savedMeetings.filter(m =>
+      m.title?.toLowerCase().includes(q) ||
+      m.tldr?.toLowerCase().includes(q) ||
+      m.decisions?.some(d => d.decision?.toLowerCase().includes(q) || d.context?.toLowerCase().includes(q)) ||
+      m.actionItems?.some(a => a.task?.toLowerCase().includes(q)) ||
+      m.openQuestions?.some(oq => oq.question?.toLowerCase().includes(q)) ||
+      m.tags?.some(t => t.toLowerCase().includes(q))
+    );
+  }, [savedMeetings, searchQuery]);
 
   const commitTitleEdit = (meetingId) => {
     const newTitle = editingTitleValue.trim();
@@ -651,6 +676,47 @@ export default function MeetingSummarizer() {
           </div>
         )}
 
+        {/* Search Bar */}
+        {savedMeetings.length > 0 && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            background: "rgba(255,255,255,0.03)",
+            border: `1px solid ${searchQuery ? "rgba(96,165,250,0.4)" : "rgba(255,255,255,0.08)"}`,
+            borderRadius: 12, padding: "10px 16px",
+            marginBottom: 12,
+            transition: "border-color 0.15s"
+          }}>
+            <span style={{ fontSize: 12, color: searchQuery ? "#60A5FA" : "#7A8499", fontFamily: "'Courier New', monospace", flexShrink: 0, transition: "color 0.15s" }}>
+              SEARCH
+            </span>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Filter by keyword across all meetings…"
+              style={{
+                flex: 1, background: "transparent", border: "none", outline: "none",
+                color: "#C8D4E8", fontSize: 14, fontFamily: "'Georgia', serif"
+              }}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  color: "#7A8499", fontSize: 16, lineHeight: 1, padding: "0 2px",
+                  flexShrink: 0, transition: "color 0.15s"
+                }}
+                onMouseEnter={e => e.target.style.color = "#C8D4E8"}
+                onMouseLeave={e => e.target.style.color = "#7A8499"}
+                title="Clear search"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Follow-up Tracker */}
         {savedMeetings.length === 0 ? (
           <div style={{
@@ -695,7 +761,7 @@ export default function MeetingSummarizer() {
                 style={{ background: "transparent", border: "none", cursor: "pointer", color: "#FBBF24", padding: 0, display: "flex", alignItems: "center", gap: 8 }}
               >
                 <span style={{ fontSize: 11, letterSpacing: 3, fontFamily: "'Courier New', monospace", textTransform: "uppercase" }}>
-                  FOLLOW-UP TRACKER ({(filterOwner || filterTag) ? `${filteredItems.length} of ${unresolvedItems.length}` : unresolvedItems.length} open)
+                  FOLLOW-UP TRACKER ({(filterOwner || filterTag || searchQuery.trim()) ? `${filteredItems.length} of ${unresolvedItems.length}` : unresolvedItems.length} open)
                 </span>
                 <span style={{ fontSize: 14 }}>{trackerOpen ? "▾" : "▸"}</span>
               </button>
@@ -776,7 +842,11 @@ export default function MeetingSummarizer() {
                     ))}
                   </div>
                 )}
-                {Object.entries(
+                {filteredItems.length === 0 && searchQuery.trim() ? (
+                  <div style={{ fontSize: 13, color: "#7A8499", fontFamily: "'Courier New', monospace", padding: "8px 0" }}>
+                    No items match "{searchQuery}"
+                  </div>
+                ) : Object.entries(
                   filteredItems.reduce((groups, item) => {
                     (groups[item.meetingTitle] = groups[item.meetingTitle] || []).push(item);
                     return groups;
@@ -784,7 +854,7 @@ export default function MeetingSummarizer() {
                 ).map(([title, items]) => (
                   <div key={title} style={{ marginBottom: 16 }}>
                     <div style={{ fontSize: 12, color: "#7A8499", fontFamily: "'Courier New', monospace", marginBottom: 8 }}>
-                      {title}
+                      {highlight(title, searchQuery)}
                     </div>
                     {items.map((item, i) => (
                       <div
@@ -806,11 +876,11 @@ export default function MeetingSummarizer() {
                         </span>
                         <div>
                           <div style={{ fontSize: 14, color: "#C8D4E8", lineHeight: 1.5 }}>
-                            {item.type === "action" ? item.task : item.question}
+                            {highlight(item.type === "action" ? item.task : item.question, searchQuery)}
                           </div>
                           {item.type === "action" && item.owner && (
                             <span style={{ fontSize: 11, color: "#7A8499", fontFamily: "'Courier New', monospace" }}>
-                              {item.owner}{item.due ? ` · ${item.due}` : ""}
+                              {highlight(item.owner, searchQuery)}{item.due ? ` · ${item.due}` : ""}
                             </span>
                           )}
                         </div>
@@ -841,14 +911,19 @@ export default function MeetingSummarizer() {
               }}
             >
               <span style={{ fontSize: 11, letterSpacing: 3, color: "#7A8499", fontFamily: "'Courier New', monospace", textTransform: "uppercase" }}>
-                Past Summaries ({savedMeetings.length})
+                Past Summaries ({searchQuery.trim() ? `${filteredMeetings.length} of ${savedMeetings.length}` : savedMeetings.length})
               </span>
               <span style={{ fontSize: 14, color: "#7A8499" }}>{historyOpen ? "▾" : "▸"}</span>
             </button>
 
             {historyOpen && (
               <div style={{ padding: "0 24px 16px" }}>
-                {[...savedMeetings].reverse().map((m, i, arr) => (
+                {filteredMeetings.length === 0 && searchQuery.trim() ? (
+                  <div style={{ fontSize: 13, color: "#7A8499", fontFamily: "'Courier New', monospace", padding: "4px 0 8px" }}>
+                    No meetings match "{searchQuery}"
+                  </div>
+                ) : null}
+                {[...filteredMeetings].reverse().map((m, i, arr) => (
                   <div key={m.id} style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between",
                     padding: "12px 0",
@@ -881,7 +956,7 @@ export default function MeetingSummarizer() {
                           title="Click to rename"
                           style={{ fontSize: 14, color: "#C8D4E8", marginBottom: 4, lineHeight: 1.4, cursor: "text" }}
                         >
-                          {m.title}
+                          {highlight(m.title, searchQuery)}
                         </div>
                       )}
                       <div style={{ fontSize: 11, color: "#4A5568", fontFamily: "'Courier New', monospace" }}>
@@ -1574,6 +1649,28 @@ Press ⌘↵ to summarize"
       </div>
     </div>
   );
+}
+
+function highlight(text, query) {
+  if (!query?.trim() || !text) return text;
+  const str = String(text);
+  const q = query.toLowerCase();
+  const lower = str.toLowerCase();
+  const parts = [];
+  let last = 0;
+  let idx = lower.indexOf(q);
+  while (idx !== -1) {
+    if (idx > last) parts.push(str.slice(last, idx));
+    parts.push(
+      <mark key={idx} style={{ background: "rgba(251,191,36,0.25)", color: "#FBBF24", borderRadius: 2, padding: "0 1px" }}>
+        {str.slice(idx, idx + q.length)}
+      </mark>
+    );
+    last = idx + q.length;
+    idx = lower.indexOf(q, last);
+  }
+  if (last < str.length) parts.push(str.slice(last));
+  return parts.length > 1 ? parts : text;
 }
 
 function editFieldStyle(color, fontSize, fontWeight) {

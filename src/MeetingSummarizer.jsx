@@ -1423,6 +1423,7 @@ Press ⌘↵ to summarize"
                     accent="#A78BFA"
                     bg="rgba(167,139,250,0.08)"
                     borderColor="rgba(167,139,250,0.2)"
+                    copyText={(data.decisions?.length ? data.decisions.map(d => `• ${d.decision}${d.context ? ` (${d.context})` : ""}`).join("\n") : null)}
                   >
                     {(data.decisions || []).map((d, i) => (
                       <div key={i} style={{ marginBottom: 14, display: "flex", alignItems: "flex-start", gap: 8 }}>
@@ -1475,6 +1476,7 @@ Press ⌘↵ to summarize"
                     accent="#4ADE80"
                     bg="rgba(74,222,128,0.08)"
                     borderColor="rgba(74,222,128,0.2)"
+                    copyText={(data.actionItems?.length ? data.actionItems.map(a => `• ${a.task} — Owner: ${a.owner}, Due: ${a.due}`).join("\n") : null)}
                   >
                     {(data.actionItems || []).map((a, i) => (
                       <div key={i} style={{
@@ -1543,6 +1545,7 @@ Press ⌘↵ to summarize"
                 bg="rgba(96,165,250,0.06)"
                 borderColor="rgba(96,165,250,0.15)"
                 style={{ marginBottom: 16 }}
+                copyText={(data.topics?.length ? data.topics.map(t => `• ${t.title}: ${t.summary}`).join("\n") : null)}
               >
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
                   {data.topics.map((t, i) => (
@@ -1570,6 +1573,7 @@ Press ⌘↵ to summarize"
                 accent="#FBBF24"
                 bg="rgba(251,191,36,0.06)"
                 borderColor="rgba(251,191,36,0.2)"
+                copyText={(data.openQuestions?.length ? data.openQuestions.map(q => `• ${q.question}`).join("\n") : null)}
               >
                 {(data.openQuestions || []).map((q, i) => (
                   <div key={i} style={{
@@ -1718,8 +1722,19 @@ function addButtonStyle(borderColor, textColor) {
   };
 }
 
-function Section({ label, accent, bg, borderColor, children, style }) {
+function Section({ label, accent, bg, borderColor, children, style, copyText }) {
   const [open, setOpen] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = (e) => {
+    e.stopPropagation();
+    if (!copyText) return;
+    navigator.clipboard.writeText(copyText).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
   return (
     <div style={{
       background: bg,
@@ -1739,7 +1754,26 @@ function Section({ label, accent, bg, borderColor, children, style }) {
         }}
       >
         <span>{label}</span>
-        <span style={{ fontSize: 13, opacity: 0.6, letterSpacing: 0 }}>{open ? "▾" : "▸"}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {copyText && (
+            <span
+              onClick={handleCopy}
+              title="Copy section"
+              style={{
+                fontSize: 10, letterSpacing: 0.5, opacity: copied ? 1 : 0.45,
+                color: copied ? accent : "inherit",
+                transition: "opacity 0.15s, color 0.15s",
+                fontFamily: "'Courier New', monospace",
+                textTransform: "uppercase"
+              }}
+              onMouseEnter={e => { e.currentTarget.style.opacity = "1"; }}
+              onMouseLeave={e => { if (!copied) e.currentTarget.style.opacity = "0.45"; }}
+            >
+              {copied ? "✓ copied" : "copy"}
+            </span>
+          )}
+          <span style={{ fontSize: 13, opacity: 0.6, letterSpacing: 0 }}>{open ? "▾" : "▸"}</span>
+        </div>
       </div>
       {open && children}
     </div>

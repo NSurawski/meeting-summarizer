@@ -1,7 +1,21 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import { demoSummary } from "./demoSummary";
 
-const SYSTEM_PROMPT = `You are an expert meeting summarizer for B2B SaaS teams. Analyze the meeting transcript and return ONLY valid JSON with this exact structure:
+function buildSystemPrompt({ verbosity = "concise", extraSections = [], customInstructions = "" } = {}) {
+  const parkingLotSchema = extraSections.includes("parkingLot")
+    ? `,\n  "parkingLot": [\n    { "item": "miscellaneous item, tangent, or topic to revisit later" }\n  ]`
+    : "";
+  const keyQuotesSchema = extraSections.includes("keyQuotes")
+    ? `,\n  "keyQuotes": [\n    { "quote": "notable quote or statement", "speaker": "person's name or 'Unknown'" }\n  ]`
+    : "";
+  const verbosityRule = verbosity === "detailed"
+    ? "Be thorough — include context, rationale, and relevant background for each item."
+    : "Be concise and specific.";
+  const customRule = customInstructions.trim()
+    ? `\n- ${customInstructions.trim()}`
+    : "";
+
+  return `You are an expert meeting summarizer for B2B SaaS teams. Analyze the meeting transcript and return ONLY valid JSON with this exact structure:
 
 {
   "title": "inferred meeting title or topic",
@@ -17,14 +31,15 @@ const SYSTEM_PROMPT = `You are an expert meeting summarizer for B2B SaaS teams. 
   ],
   "openQuestions": [
     { "question": "unresolved question or parking lot item" }
-  ]
+  ]${parkingLotSchema}${keyQuotesSchema}
 }
 
 Rules:
-- Be concise and specific
+- ${verbosityRule}
 - Infer owners from context (e.g. if someone says "I'll handle X", they own it)
-- If something is unclear, mark it as TBD
+- If something is unclear, mark it as TBD${customRule}
 - Return ONLY the JSON object, no markdown, no explanation`;
+}
 
 const SAMPLE_TRANSCRIPT = `Sarah: Okay let's get started. Today we need to finalize the Q3 roadmap and talk through the dashboard redesign feedback.
 
@@ -91,6 +106,8 @@ function extractPartial(raw) {
   result.decisions = extractArr("decisions");
   result.actionItems = extractArr("actionItems");
   result.openQuestions = extractArr("openQuestions");
+  result.parkingLot = extractArr("parkingLot");
+  result.keyQuotes = extractArr("keyQuotes");
 
   return result;
 }
@@ -144,6 +161,15 @@ export default function MeetingSummarizer() {
   const [editingTitleId, setEditingTitleId] = useState(null);
   const [editingTitleValue, setEditingTitleValue] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [promptSettings, setPromptSettings] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("promptSettings") || "{}"); }
+    catch { return {}; }
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const verbosity = promptSettings.verbosity || "concise";
+  const extraSections = promptSettings.extraSections || [];
+  const customInstructions = promptSettings.customInstructions || "";
+  const hasCustomSettings = verbosity !== "concise" || extraSections.length > 0 || customInstructions.trim();
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -290,7 +316,7 @@ export default function MeetingSummarizer() {
           model: model,
           max_tokens: 4000,
           stream: true,
-          system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+          system: [{ type: "text", text: buildSystemPrompt(promptSettings), cache_control: { type: "ephemeral" } }],
           messages: [{ role: "user", content: `Summarize this meeting transcript:\n\n${transcript}` }]
         })
       });
@@ -348,7 +374,9 @@ export default function MeetingSummarizer() {
         topics: parsed.topics || [],
         decisions: parsed.decisions || [],
         actionItems: parsed.actionItems || [],
-        openQuestions: parsed.openQuestions || []
+        openQuestions: parsed.openQuestions || [],
+        parkingLot: parsed.parkingLot || [],
+        keyQuotes: parsed.keyQuotes || []
       });
       setIsEditing(true);
     } catch (err) {
@@ -375,6 +403,8 @@ export default function MeetingSummarizer() {
       decisions: toSave.decisions || [],
       actionItems: (toSave.actionItems || []).map(a => ({ ...a, resolved: false })),
       openQuestions: (toSave.openQuestions || []).map(q => ({ ...q, resolved: false })),
+      parkingLot: toSave.parkingLot || [],
+      keyQuotes: toSave.keyQuotes || [],
       tags: pendingTags
     };
     const updatedMeetings = [...savedMeetings, newMeeting];
@@ -383,6 +413,12 @@ export default function MeetingSummarizer() {
     setIsEditing(false);
     setPendingTags([]);
     setTagInput("");
+  };
+
+  const updatePromptSetting = (key, value) => {
+    const updated = { ...promptSettings, [key]: value };
+    setPromptSettings(updated);
+    localStorage.setItem("promptSettings", JSON.stringify(updated));
   };
 
   const updateEditField = (field, value) =>
@@ -415,7 +451,9 @@ export default function MeetingSummarizer() {
       src.topics?.length ? `\n## Topics Discussed\n${src.topics.map(t => `• ${t.title}: ${t.summary}`).join("\n")}` : "",
       src.decisions?.length ? `\n## Decisions\n${src.decisions.map(d => `• ${d.decision}${d.context ? ` (${d.context})` : ""}`).join("\n")}` : "",
       src.actionItems?.length ? `\n## Action Items\n${src.actionItems.map(a => `• ${a.task} — Owner: ${a.owner}, Due: ${a.due}`).join("\n")}` : "",
-      src.openQuestions?.length ? `\n## Open Questions\n${src.openQuestions.map(q => `• ${q.question}`).join("\n")}` : ""
+      src.openQuestions?.length ? `\n## Open Questions\n${src.openQuestions.map(q => `• ${q.question}`).join("\n")}` : "",
+      src.parkingLot?.length ? `\n## Parking Lot\n${src.parkingLot.map(p => `• ${p.item}`).join("\n")}` : "",
+      src.keyQuotes?.length ? `\n## Key Quotes\n${src.keyQuotes.map(q => `• "${q.quote}" — ${q.speaker}`).join("\n")}` : ""
     ].filter(Boolean).join("\n");
 
     const slug = src.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -446,6 +484,12 @@ export default function MeetingSummarizer() {
     const questionsHtml = src.openQuestions?.length
       ? `<h2>Open Questions</h2><ul>${src.openQuestions.map(q => `<li>${esc(q.question)}</li>`).join("")}</ul>`
       : "";
+    const parkingLotHtml = src.parkingLot?.length
+      ? `<h2>Parking Lot</h2><ul>${src.parkingLot.map(p => `<li>${esc(p.item)}</li>`).join("")}</ul>`
+      : "";
+    const keyQuotesHtml = src.keyQuotes?.length
+      ? `<h2>Key Quotes</h2>${src.keyQuotes.map(q => `<div class="quote"><em>"${esc(q.quote)}"</em><div class="speaker">— ${esc(q.speaker)}</div></div>`).join("")}`
+      : "";
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(src.title)}</title><style>
       body{font-family:Georgia,serif;max-width:760px;margin:40px auto;padding:0 24px;color:#111;line-height:1.6}
@@ -458,12 +502,14 @@ export default function MeetingSummarizer() {
       th{text-align:left;padding:8px 12px;background:#f5f7fa;border-bottom:2px solid #ddd;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#888}
       td{padding:8px 12px;border-bottom:1px solid #eee;vertical-align:top}
       .topic{margin-bottom:12px}.topic strong{display:block;font-size:14px;color:#222}.topic p{margin:4px 0 0;font-size:13px;color:#555}
+      .quote{margin-bottom:12px;padding:10px 14px;background:#fafafa;border-left:3px solid #ddd;font-size:14px;color:#333}
+      .speaker{font-size:12px;color:#888;margin-top:4px}
       @media print{body{margin:0}}
     </style></head><body>
       <h1>${esc(src.title)}</h1>
       <div class="meta">Generated ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
       <div class="tldr">${esc(src.tldr)}</div>
-      ${topicsHtml}${decisionsHtml}${actionsHtml}${questionsHtml}
+      ${topicsHtml}${decisionsHtml}${actionsHtml}${questionsHtml}${parkingLotHtml}${keyQuotesHtml}
     </body></html>`;
 
     const win = window.open("", "_blank");
@@ -483,7 +529,9 @@ export default function MeetingSummarizer() {
       src.topics?.length ? `\n## Topics Discussed\n${src.topics.map(t => `• ${t.title}: ${t.summary}`).join("\n")}` : "",
       src.decisions?.length ? `\n## Decisions\n${src.decisions.map(d => `• ${d.decision}${d.context ? ` (${d.context})` : ""}`).join("\n")}` : "",
       src.actionItems?.length ? `\n## Action Items\n${src.actionItems.map(a => `• ${a.task} — Owner: ${a.owner}, Due: ${a.due}`).join("\n")}` : "",
-      src.openQuestions?.length ? `\n## Open Questions\n${src.openQuestions.map(q => `• ${q.question}`).join("\n")}` : ""
+      src.openQuestions?.length ? `\n## Open Questions\n${src.openQuestions.map(q => `• ${q.question}`).join("\n")}` : "",
+      src.parkingLot?.length ? `\n## Parking Lot\n${src.parkingLot.map(p => `• ${p.item}`).join("\n")}` : "",
+      src.keyQuotes?.length ? `\n## Key Quotes\n${src.keyQuotes.map(q => `• "${q.quote}" — ${q.speaker}`).join("\n")}` : ""
     ].filter(Boolean).join("\n");
 
     navigator.clipboard.writeText(text).then(() => {
@@ -499,7 +547,9 @@ export default function MeetingSummarizer() {
       topics: meeting.topics || [],
       decisions: meeting.decisions || [],
       actionItems: (meeting.actionItems || []).map(({ task, owner, due }) => ({ task, owner, due })),
-      openQuestions: (meeting.openQuestions || []).map(({ question }) => ({ question }))
+      openQuestions: (meeting.openQuestions || []).map(({ question }) => ({ question })),
+      parkingLot: meeting.parkingLot || [],
+      keyQuotes: meeting.keyQuotes || []
     });
     setIsEditing(false);
     setEditableSummary(null);
@@ -636,6 +686,128 @@ export default function MeetingSummarizer() {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Prompt Settings */}
+        <div style={{
+          background: "rgba(255,255,255,0.03)",
+          border: `1px solid ${hasCustomSettings ? "rgba(96,165,250,0.3)" : "rgba(255,255,255,0.08)"}`,
+          borderRadius: 12,
+          marginBottom: 16,
+          overflow: "hidden",
+          transition: "border-color 0.15s"
+        }}>
+          <button
+            onClick={() => setSettingsOpen(!settingsOpen)}
+            style={{
+              width: "100%", background: "transparent", border: "none",
+              cursor: "pointer", padding: "10px 20px",
+              display: "flex", alignItems: "center", justifyContent: "space-between"
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12, color: hasCustomSettings ? "#60A5FA" : "#7A8499", fontFamily: "'Courier New', monospace", letterSpacing: 1, transition: "color 0.15s" }}>
+                PROMPT SETTINGS
+              </span>
+              {hasCustomSettings && (
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#60A5FA", boxShadow: "0 0 6px #60A5FA", display: "inline-block" }} />
+              )}
+            </div>
+            <span style={{ fontSize: 14, color: "#7A8499" }}>{settingsOpen ? "▾" : "▸"}</span>
+          </button>
+
+          {settingsOpen && (
+            <div style={{ padding: "0 20px 18px", display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* Verbosity */}
+              <div>
+                <div style={{ fontSize: 10, color: "#7A8499", fontFamily: "'Courier New', monospace", letterSpacing: 1, marginBottom: 8 }}>VERBOSITY</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {[
+                    { id: "concise", label: "Concise", desc: "Tight summaries" },
+                    { id: "detailed", label: "Detailed", desc: "More context" }
+                  ].map(opt => (
+                    <button
+                      key={opt.id}
+                      onClick={() => updatePromptSetting("verbosity", opt.id)}
+                      style={{
+                        flex: 1, padding: "6px 12px",
+                        background: verbosity === opt.id ? "rgba(59,130,246,0.15)" : "transparent",
+                        border: `1px solid ${verbosity === opt.id ? "rgba(59,130,246,0.45)" : "rgba(255,255,255,0.08)"}`,
+                        borderRadius: 8, cursor: "pointer",
+                        color: verbosity === opt.id ? "#60A5FA" : "#7A8499",
+                        fontSize: 12, fontFamily: "'Courier New', monospace",
+                        transition: "all 0.15s",
+                        display: "flex", alignItems: "center", justifyContent: "center", gap: 8
+                      }}
+                    >
+                      <span style={{ fontWeight: verbosity === opt.id ? 600 : 400 }}>{opt.label}</span>
+                      <span style={{ fontSize: 10, opacity: 0.6 }}>{opt.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Extra Sections */}
+              <div>
+                <div style={{ fontSize: 10, color: "#7A8499", fontFamily: "'Courier New', monospace", letterSpacing: 1, marginBottom: 8 }}>EXTRA SECTIONS</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {[
+                    { id: "parkingLot", label: "Parking Lot", desc: "misc & deferred items" },
+                    { id: "keyQuotes", label: "Key Quotes", desc: "notable statements" }
+                  ].map(sec => {
+                    const active = extraSections.includes(sec.id);
+                    return (
+                      <button
+                        key={sec.id}
+                        onClick={() => {
+                          const next = active
+                            ? extraSections.filter(s => s !== sec.id)
+                            : [...extraSections, sec.id];
+                          updatePromptSetting("extraSections", next);
+                        }}
+                        style={{
+                          padding: "5px 14px",
+                          background: active ? "rgba(96,165,250,0.12)" : "transparent",
+                          border: `1px solid ${active ? "rgba(96,165,250,0.4)" : "rgba(255,255,255,0.1)"}`,
+                          borderRadius: 20, cursor: "pointer",
+                          color: active ? "#60A5FA" : "#7A8499",
+                          fontSize: 11, fontFamily: "'Courier New', monospace",
+                          transition: "all 0.15s",
+                          display: "flex", alignItems: "center", gap: 6
+                        }}
+                      >
+                        <span style={{ fontSize: 11, opacity: 0.8 }}>{active ? "☑" : "☐"}</span>
+                        {sec.label}
+                        <span style={{ fontSize: 10, opacity: 0.5 }}>— {sec.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Custom Instructions */}
+              <div>
+                <div style={{ fontSize: 10, color: "#7A8499", fontFamily: "'Courier New', monospace", letterSpacing: 1, marginBottom: 8 }}>CUSTOM INSTRUCTIONS</div>
+                <textarea
+                  value={customInstructions}
+                  onChange={e => updatePromptSetting("customInstructions", e.target.value)}
+                  placeholder="e.g. Focus on technical decisions. Always include ticket numbers if mentioned."
+                  rows={3}
+                  style={{
+                    width: "100%",
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    borderRadius: 8, padding: "8px 12px",
+                    color: "#C8D4E8", fontSize: 13,
+                    fontFamily: "'Georgia', serif",
+                    outline: "none", resize: "vertical",
+                    boxSizing: "border-box",
+                    lineHeight: 1.6
+                  }}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Demo CTA */}
@@ -1603,6 +1775,68 @@ Press ⌘↵ to summarize"
                     + Add question
                   </button>
                 )}
+              </Section>
+            )}
+
+            {/* Parking Lot */}
+            {(data.parkingLot?.length > 0 || (isEditing && extraSections.includes("parkingLot"))) && (
+              <Section
+                label="PARKING LOT"
+                accent="#F97316"
+                bg="rgba(249,115,22,0.06)"
+                borderColor="rgba(249,115,22,0.2)"
+                style={{ marginTop: 16 }}
+                copyText={(data.parkingLot?.length ? data.parkingLot.map(p => `• ${p.item}`).join("\n") : null)}
+              >
+                {(data.parkingLot || []).map((p, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 10 }}>
+                    <span style={{ color: "#F97316", marginTop: isEditing ? 7 : 2, flexShrink: 0 }}>○</span>
+                    {isEditing ? (
+                      <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
+                        <input
+                          value={p.item}
+                          onChange={e => updateEditItem("parkingLot", i, { item: e.target.value })}
+                          placeholder="Item"
+                          style={{ ...editFieldStyle("#C8D4E8", 14, 400), flex: 1 }}
+                        />
+                        <button onClick={() => removeEditItem("parkingLot", i)} style={deleteButtonStyle}>×</button>
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: 14, color: "#C8D4E8", lineHeight: 1.6 }}>{p.item}</span>
+                    )}
+                  </div>
+                ))}
+                {isEditing && (
+                  <button
+                    onClick={() => addEditItem("parkingLot", { item: "" })}
+                    style={addButtonStyle("rgba(249,115,22,0.3)", "#F97316")}
+                  >
+                    + Add item
+                  </button>
+                )}
+              </Section>
+            )}
+
+            {/* Key Quotes */}
+            {data.keyQuotes?.length > 0 && (
+              <Section
+                label="KEY QUOTES"
+                accent="#E879F9"
+                bg="rgba(232,121,249,0.05)"
+                borderColor="rgba(232,121,249,0.2)"
+                style={{ marginTop: 16 }}
+                copyText={data.keyQuotes.map(q => `"${q.quote}" — ${q.speaker}`).join("\n")}
+              >
+                {data.keyQuotes.map((q, i) => (
+                  <div key={i} style={{ marginBottom: 14, paddingLeft: 4 }}>
+                    <div style={{ fontSize: 14, color: "#C8D4E8", lineHeight: 1.6, fontStyle: "italic" }}>
+                      "{q.quote}"
+                    </div>
+                    <div style={{ fontSize: 12, color: "#E879F9", fontFamily: "'Courier New', monospace", marginTop: 4 }}>
+                      — {q.speaker}
+                    </div>
+                  </div>
+                ))}
               </Section>
             )}
 
